@@ -82,6 +82,7 @@ export default function TodosPage() {
       <PageBar
         title='Todo'
         pattern='mixed'
+        band
         controls={
           <>
             <Tooltip label='New list'>
