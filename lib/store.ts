@@ -13,8 +13,8 @@ import { accessOfUser, ADMIN_ACCESS, type Command, type NodeChildEntry, NodeNotF
 import { GROUP_HOMES_PATH, groupHomePath, USERS_PATH } from '@ein/paths';
 import type { TodoItem, TodoList, TodoMember } from './api.ts';
 
-export const LIST_TYPE = 'todo-list';
-export const ITEM_TYPE = 'todo';
+const LIST_TYPE = 'todo-list';
+const ITEM_TYPE = 'todo';
 
 /** The folder of lists in a home, a person's or a group's. */
 const TODOS_DIR = 'todos';
@@ -22,8 +22,8 @@ const TODOS_DIR = 'todos';
 /** A reader's own lists: closed to everyone else, so neither they nor search see them. */
 const PERSONAL_MODE = 0o700;
 
-export type ListAttrs = { title?: string };
-export type ItemAttrs = { title?: string; done?: boolean; doneAt?: string; doneBy?: string; due?: string; assignee?: string };
+type ListAttrs = { title?: string };
+type ItemAttrs = { title?: string; done?: boolean; doneAt?: string; doneBy?: string; due?: string; assignee?: string };
 
 /** A `todo` command's failure, said to the caller as it is. */
 export class TodoError extends Error {}
@@ -37,7 +37,7 @@ const personalRoot = (cmd: Command): string => {
 const groupRoot = (group: string): string => `${groupHomePath(group)}/${TODOS_DIR}`;
 
 /** The group whose shared home holds `path`, or undefined for anything else. */
-export const groupOf = (path: string): string | undefined => {
+const groupOf = (path: string): string | undefined => {
   const prefix = `${GROUP_HOMES_PATH}/`;
   return path.startsWith(prefix) ? path.slice(prefix.length).split('/')[0] || undefined : undefined;
 };
@@ -82,7 +82,7 @@ const itemOf = (list: string, entry: NodeChildEntry<ItemAttrs>): TodoItem => {
 };
 
 /** The items of the list at `path`, in the order they were added. */
-export const itemsOf = async (cmd: Command, path: string): Promise<TodoItem[]> =>
+const itemsOf = async (cmd: Command, path: string): Promise<TodoItem[]> =>
   (await children<ItemAttrs>(cmd, path))
     .filter((entry) => entry.node.type === ITEM_TYPE)
     // Names are ULIDs, so their order is the order the items were added in.
