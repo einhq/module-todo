@@ -1,0 +1,39 @@
+#!ts
+/** todo-mine — what is left for you: open items given to you, and the open items of your own lists that are nobody else's. */
+import type { CmdReturn, Command } from '@ein/client';
+import type { TodoMine } from '@todo/api';
+import { allLists, fail, itemLine } from '@todo/store';
+
+const todoMine = async (cmd: Command): CmdReturn => {
+  try {
+    const me = cmd.env.USER ?? '';
+    const mine: TodoMine[] = [];
+    for (const { list, items } of await allLists(cmd)) {
+      for (const item of items) {
+        if (item.done) continue;
+        if (item.assignee === me || (!list.group && !item.assignee)) {
+          mine.push({ ...item, listTitle: list.title, ...(list.group ? { group: list.group } : {}) });
+        }
+      }
+    }
+    // Soonest due first; those due on no day after them, in the order they were added.
+    mine.sort((a, b) => (a.due ?? '9999').localeCompare(b.due ?? '9999') || (a.path < b.path ? -1 : 1));
+    if (cmd.json) await cmd.writeJSON(mine satisfies TodoMine[]);
+    else for (const item of mine) await cmd.writeLn(`${itemLine(item)}  (${item.listTitle})`);
+    return 0;
+  } catch (error) {
+    return await fail(cmd, 'todo-mine', error);
+  }
+};
+
+todoMine.spec = {
+  name: 'todo-mine',
+  effect: 'read' as const,
+  description: "List what is left for you to do: open items given to you on any list, and your own lists' open items given to nobody, soonest due first",
+  args: [],
+  flags: [],
+  examples: ['todo-mine'],
+  returns: 'One entry per item, as todo-items gives them, with listTitle and group.',
+};
+
+export default todoMine;

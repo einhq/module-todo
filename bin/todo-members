@@ -1,0 +1,30 @@
+#!ts
+/** todo-members — who an item of a list may be given to. */
+import type { CmdReturn, Command } from '@ein/client';
+import type { TodoMember } from '@todo/api';
+import { fail, membersOf, readList } from '@todo/store';
+
+const todoMembers = async (cmd: Command): CmdReturn => {
+  try {
+    // Read first: only someone who can see the list learns who shares it.
+    const { list } = await readList(cmd, cmd.args[0]);
+    const members = await membersOf(cmd, list.path);
+    if (cmd.json) await cmd.writeJSON(members satisfies TodoMember[]);
+    else for (const member of members) await cmd.writeLn(`${member.username}\t${member.name}`);
+    return 0;
+  } catch (error) {
+    return await fail(cmd, 'todo-members', error);
+  }
+};
+
+todoMembers.spec = {
+  name: 'todo-members',
+  effect: 'read' as const,
+  description: "List who an item of a todo list may be given to: the members of the list's group, or you for a list of your own",
+  args: [{ name: 'list', type: 'path' as const, description: 'the list, by its path' }],
+  flags: [],
+  examples: ['todo-members /groups/users/todos/shopping'],
+  returns: 'One entry per person: username and name.',
+};
+
+export default todoMembers;

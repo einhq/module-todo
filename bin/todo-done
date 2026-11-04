@@ -1,0 +1,34 @@
+#!ts
+/** todo-done — mark an item done, saying who and when, or with --undo not done again. */
+import type { CmdReturn, Command } from '@ein/client';
+import { collectUnknownFlags, parseArgs, reportUnknownFlags } from '@ein/client';
+import type { TodoItem } from '@todo/api';
+import { fail, itemLine, readItem, updateItem } from '@todo/store';
+
+const todoDone = async (cmd: Command): CmdReturn => {
+  const unknown: string[] = [];
+  const flags = parseArgs(cmd.args, { boolean: ['undo'], unknown: collectUnknownFlags(unknown) });
+  if (await reportUnknownFlags(cmd, unknown)) return 1;
+  try {
+    const item = await readItem(cmd, flags._[0] === undefined ? undefined : String(flags._[0]));
+    const attrs = flags.undo ? { done: false, doneAt: null, doneBy: null } : { done: true, doneAt: new Date().toISOString(), doneBy: cmd.env.USER ?? String(cmd.access.uid) };
+    const changed = await updateItem(cmd, item.path, attrs);
+    if (cmd.json) await cmd.writeJSON(changed satisfies TodoItem);
+    else await cmd.writeLn(itemLine(changed));
+    return 0;
+  } catch (error) {
+    return await fail(cmd, 'todo-done', error);
+  }
+};
+
+todoDone.spec = {
+  name: 'todo-done',
+  effect: 'write' as const,
+  description: 'Mark a todo item done, with who did it and when, or with --undo not done again',
+  args: [{ name: 'item', type: 'path' as const, description: 'the item, by its path' }],
+  flags: [{ name: 'undo', type: 'bool' as const, description: 'mark it not done' }],
+  examples: ['todo-done /groups/users/todos/shopping/01JB...'],
+  returns: 'The item as it is now, with doneAt and doneBy when it is done.',
+};
+
+export default todoDone;

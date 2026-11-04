@@ -1,0 +1,17 @@
+{
+  "sidebar": [
+    { "id": "todo.lists", "section": "main", "label": "Todo", "icon": "list-check", "to": "/todos", "order": 35, "signedIn": true }
+  ],
+  "topbar": [
+    {
+      "id": "todo.new-item",
+      "parent": "ui.create",
+      "title": "Todo item",
+      "icon": "list-check",
+      "color": "teal",
+      "action": { "dialog": "/todos/new" },
+      "order": 30,
+      "signedIn": true
+    }
+  ]
+}

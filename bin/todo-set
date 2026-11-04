@@ -1,0 +1,52 @@
+#!ts
+/** todo-set — change an item's title, due day or assignee. */
+import type { CmdReturn, Command } from '@ein/client';
+import { collectUnknownFlags, parseArgs, reportUnknownFlags } from '@ein/client';
+import type { TodoItem } from '@todo/api';
+import { assignable, dueDay, fail, itemLine, readItem, TodoError, updateItem } from '@todo/store';
+
+const todoSet = async (cmd: Command): CmdReturn => {
+  const unknown: string[] = [];
+  const flags = parseArgs(cmd.args, { string: ['title', 'due', 'assignee'], boolean: ['no-due', 'no-assignee'], unknown: collectUnknownFlags(unknown) });
+  if (await reportUnknownFlags(cmd, unknown)) return 1;
+  try {
+    const item = await readItem(cmd, flags._[0] === undefined ? undefined : String(flags._[0]));
+    const attrs: Record<string, unknown> = {};
+    if (flags.title !== undefined) {
+      if (!flags.title.trim()) throw new TodoError('an item needs a title');
+      attrs.title = flags.title.trim();
+    }
+    if (flags.due !== undefined && flags['no-due']) throw new TodoError('--due and --no-due say opposite things');
+    if (flags.assignee !== undefined && flags['no-assignee']) throw new TodoError('--assignee and --no-assignee say opposite things');
+    if (flags.due !== undefined) attrs.due = dueDay(flags.due);
+    if (flags['no-due']) attrs.due = null;
+    if (flags.assignee !== undefined) attrs.assignee = await assignable(cmd, item.list, flags.assignee);
+    if (flags['no-assignee']) attrs.assignee = null;
+    if (Object.keys(attrs).length === 0) throw new TodoError('nothing to change: give --title, --due, --no-due, --assignee or --no-assignee');
+
+    const changed = await updateItem(cmd, item.path, attrs);
+    if (cmd.json) await cmd.writeJSON(changed satisfies TodoItem);
+    else await cmd.writeLn(itemLine(changed));
+    return 0;
+  } catch (error) {
+    return await fail(cmd, 'todo-set', error);
+  }
+};
+
+todoSet.spec = {
+  name: 'todo-set',
+  effect: 'write' as const,
+  description: "Change a todo item's title, the day it is due, or who is to do it",
+  args: [{ name: 'item', type: 'path' as const, description: 'the item, by its path' }],
+  flags: [
+    { name: 'title', type: 'string' as const, description: 'its new title' },
+    { name: 'due', type: 'string' as const, description: 'the day it is due, as YYYY-MM-DD' },
+    { name: 'no-due', type: 'bool' as const, description: 'it is due on no particular day' },
+    { name: 'assignee', type: 'user' as const, description: "who is to do it: a member of the list's group, or you on a list of your own" },
+    { name: 'no-assignee', type: 'bool' as const, description: "it is nobody in particular's" },
+  ],
+  examples: ['todo-set /groups/users/todos/shopping/01JB... --due 2026-11-20 --assignee anna'],
+  returns: 'The item as it is now.',
+};
+
+export default todoSet;

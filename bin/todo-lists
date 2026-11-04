@@ -1,0 +1,28 @@
+#!ts
+/** todo-lists — every todo list the reader can see: their own, then each of their groups'. */
+import type { CmdReturn, Command } from '@ein/client';
+import type { TodoList } from '@todo/api';
+import { allLists, fail } from '@todo/store';
+
+const todoLists = async (cmd: Command): CmdReturn => {
+  try {
+    const lists = (await allLists(cmd)).map(({ list }) => list);
+    if (cmd.json) await cmd.writeJSON(lists satisfies TodoList[]);
+    else for (const list of lists) await cmd.writeLn(`${list.title}  ${list.open}/${list.total} open  ${list.group ? `(${list.group})  ` : ''}${list.path}`);
+    return 0;
+  } catch (error) {
+    return await fail(cmd, 'todo-lists', error);
+  }
+};
+
+todoLists.spec = {
+  name: 'todo-lists',
+  effect: 'read' as const,
+  description: 'List the todo lists you can see: your own, then those in the shared homes of your groups',
+  args: [],
+  flags: [],
+  examples: ['todo-lists'],
+  returns: 'One entry per list: path, title, group (absent for your own), open and total.',
+};
+
+export default todoLists;

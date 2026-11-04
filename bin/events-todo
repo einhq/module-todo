@@ -1,0 +1,61 @@
+#!ts
+/**
+ * events-todo — for Home's events: the open items falling due around a day that are the reader's
+ * to do, given to them or to nobody, on any list they can see.
+ */
+import type { CmdReturn, Command } from '@ein/client';
+import { collectUnknownFlags, parseArgs, reportUnknownFlags } from '@ein/client';
+import type { EventEntry, Provided } from '@ein/api';
+import { allLists, fail, isDay } from '@todo/store';
+
+const DAY_MS = 86_400_000;
+
+const eventsTodo = async (cmd: Command): CmdReturn => {
+  const unknown: string[] = [];
+  const flags = parseArgs(cmd.args, { string: ['today', 'days-ahead', 'days-past', 'limit'], unknown: collectUnknownFlags(unknown) });
+  if (await reportUnknownFlags(cmd, unknown)) return 1;
+  const today = flags.today ?? new Date().toISOString().slice(0, 10);
+  if (!isDay(today)) return await fail(cmd, 'events-todo', `--today must be YYYY-MM-DD, got '${today}'`);
+  const ahead = Number(flags['days-ahead'] ?? 30);
+  const past = Number(flags['days-past'] ?? 7);
+  const limit = Number(flags.limit ?? 16);
+  const day = (offset: number) => new Date(Date.parse(`${today}T00:00:00Z`) + offset * DAY_MS).toISOString().slice(0, 10);
+  const from = day(-past);
+  const to = day(ahead);
+
+  try {
+    const me = cmd.env.USER ?? '';
+    const entries: Provided<EventEntry>[] = [];
+    for (const { list, items } of await allLists(cmd)) {
+      for (const item of items) {
+        if (item.done || !item.due || item.due < from || item.due > to) continue;
+        if (item.assignee && item.assignee !== me) continue;
+        entries.push({ title: `${item.title} (${list.title})`, route: `/todos?item=${encodeURIComponent(item.path)}`, path: item.path, date: item.due });
+      }
+    }
+    entries.sort((a, b) => a.date.localeCompare(b.date));
+    const answer = entries.slice(0, limit);
+    if (cmd.json) await cmd.writeJSON(answer);
+    else for (const entry of answer) await cmd.writeLn(`${entry.date}  ${entry.title}`);
+    return 0;
+  } catch (error) {
+    return await fail(cmd, 'events-todo', error);
+  }
+};
+
+eventsTodo.spec = {
+  name: 'events-todo',
+  effect: 'read' as const,
+  description: "Home's events from the todo lists: open items due around a day that are yours, given to you or to nobody",
+  args: [],
+  flags: [
+    { name: 'today', type: 'string' as const, description: 'the day to look around, YYYY-MM-DD (default today)' },
+    { name: 'days-ahead', type: 'number' as const, description: 'how many days ahead (default 30)' },
+    { name: 'days-past', type: 'number' as const, description: 'how many days back (default 7)' },
+    { name: 'limit', type: 'number' as const, description: 'at most this many (default 16)' },
+  ],
+  examples: ['events-todo --today 2026-11-04'],
+  returns: 'One events entry per item: title, route, path and date.',
+};
+
+export default eventsTodo;

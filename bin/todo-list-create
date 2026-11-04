@@ -1,0 +1,32 @@
+#!ts
+/** todo-list-create — a new todo list, your own or, with --group, one the group shares. */
+import type { CmdReturn, Command } from '@ein/client';
+import { collectUnknownFlags, parseArgs, reportUnknownFlags } from '@ein/client';
+import type { TodoList } from '@todo/api';
+import { createList, fail } from '@todo/store';
+
+const todoListCreate = async (cmd: Command): CmdReturn => {
+  const unknown: string[] = [];
+  const flags = parseArgs(cmd.args, { string: ['group'], unknown: collectUnknownFlags(unknown) });
+  if (await reportUnknownFlags(cmd, unknown)) return 1;
+  try {
+    const list = await createList(cmd, flags._.map(String).join(' '), flags.group || undefined);
+    if (cmd.json) await cmd.writeJSON(list satisfies TodoList);
+    else await cmd.writeLn(list.path);
+    return 0;
+  } catch (error) {
+    return await fail(cmd, 'todo-list-create', error);
+  }
+};
+
+todoListCreate.spec = {
+  name: 'todo-list-create',
+  effect: 'write' as const,
+  description: "Make a todo list: your own, in ~/todos, or with --group one every member of the group shares, in the group's shared home",
+  args: [{ name: 'title', type: 'string' as const, description: 'what the list is called, such as Shopping' }],
+  flags: [{ name: 'group', type: 'group' as const, description: 'a group of yours with a shared home, whose members share the list' }],
+  examples: ['todo-list-create Shopping --group users', "todo-list-create 'Before the trip'"],
+  returns: 'The new list: path, title, group, open and total.',
+};
+
+export default todoListCreate;

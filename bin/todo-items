@@ -1,0 +1,28 @@
+#!ts
+/** todo-items — a todo list and its items, in the order they were added. */
+import type { CmdReturn, Command } from '@ein/client';
+import type { TodoListing } from '@todo/api';
+import { fail, itemLine, readList } from '@todo/store';
+
+const todoItems = async (cmd: Command): CmdReturn => {
+  try {
+    const listing = await readList(cmd, cmd.args[0]);
+    if (cmd.json) await cmd.writeJSON(listing satisfies TodoListing);
+    else for (const item of listing.items) await cmd.writeLn(itemLine(item));
+    return 0;
+  } catch (error) {
+    return await fail(cmd, 'todo-items', error);
+  }
+};
+
+todoItems.spec = {
+  name: 'todo-items',
+  effect: 'read' as const,
+  description: 'Show a todo list and its items, in the order they were added',
+  args: [{ name: 'list', type: 'path' as const, description: 'the list, by its path' }],
+  flags: [],
+  examples: ['todo-items /groups/users/todos/shopping'],
+  returns: 'The list (path, title, group, open, total) and its items (path, title, done, doneAt, doneBy, due, assignee).',
+};
+
+export default todoItems;
