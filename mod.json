@@ -3,7 +3,7 @@
   "version": "0.1.2",
   "description": "Todo lists, personal or shared within a group: items with a due date and someone to do them, shown on Home when they fall due",
   "license": "Elastic-2.0, with an added permission (LICENSE)",
-  "coreApi": "^0.10.6",
+  "coreApi": "^0.10.7",
   "exports": {
     "./api": "./lib/api.ts"
   },
@@ -32,7 +32,8 @@
   "ui": {
     "routes": {
       "/todos": "ui/pages/todos.tsx",
-      "/todos/new": "ui/pages/new-item.tsx"
+      "/todos/new": "ui/pages/new-item.tsx",
+      "/todos/new-list": "ui/pages/new-list.tsx"
     },
     "open": {
       "todo-list": "/todos?list={path}",

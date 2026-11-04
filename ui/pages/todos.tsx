@@ -1,27 +1,9 @@
-import {
-  ActionIcon,
-  Badge,
-  Box,
-  Button,
-  Checkbox,
-  Collapse,
-  Group,
-  Menu,
-  Modal,
-  Paper,
-  ScrollArea,
-  Select,
-  Stack,
-  Text,
-  TextInput,
-  Tooltip,
-  UnstyledButton,
-} from '@mantine/core';
+import { ActionIcon, Badge, Box, Button, Checkbox, Collapse, Group, Menu, Paper, ScrollArea, Select, Stack, Text, TextInput, Tooltip, UnstyledButton } from '@mantine/core';
 import { EmptyState, ListFilterInput, PageBar, PageLoader, TablerIcon } from '@ein/ui/components';
 import { useCommand, usePhone } from '@ein/ui/hooks';
 import { shq } from '@ein/ui/lib';
-import { execCommand, notify } from '@ein/ui/signals';
-import { type FormEvent, type ReactNode, useState } from 'react';
+import { execCommand, notify, openDialog } from '@ein/ui/signals';
+import { type FormEvent, type ReactNode, useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import type { TodoItem, TodoList, TodoListing, TodoMember, TodoMine } from '../../lib/api.ts';
 
@@ -69,9 +51,14 @@ export default function TodosPage() {
   const phone = usePhone();
   const listPath = params.get('list') ?? (params.get('item') ? dirname(params.get('item')!) : null);
   const lists = useCommand<TodoList[]>('todo-lists');
-  const [creating, setCreating] = useState(false);
 
   const open = (path: string | null) => setParams(path ? { list: path } : {});
+
+  // A list made in the New list dialog opens here before the lists have heard of it.
+  const known = lists.data?.some((list) => list.path === listPath) ?? true;
+  useEffect(() => {
+    if (listPath && !known) void lists.refetch();
+  }, [listPath, known]);
 
   return (
     <Paper
@@ -86,7 +73,7 @@ export default function TodosPage() {
         controls={
           <>
             <Tooltip label='New list'>
-              <ActionIcon variant='subtle' size={phone ? BAR_BUTTON.size : undefined} onClick={() => setCreating(true)} aria-label='New list'>
+              <ActionIcon variant='subtle' size={phone ? BAR_BUTTON.size : undefined} onClick={() => openDialog('/todos/new-list')} aria-label='New list'>
                 <TablerIcon name='plus' size={phone ? BAR_BUTTON.icon : 17} />
               </ActionIcon>
             </Tooltip>
@@ -108,15 +95,6 @@ export default function TodosPage() {
           </Box>
         </ScrollArea>
       </Box>
-      <NewListModal
-        opened={creating}
-        onClose={() => setCreating(false)}
-        onCreated={(list) => {
-          setCreating(false);
-          void lists.refetch();
-          open(list.path);
-        }}
-      />
     </Paper>
   );
 }
@@ -443,49 +421,5 @@ function MineView({ onChanged, onOpen }: { onChanged: () => void; onOpen: (path:
         />
       ))}
     </Stack>
-  );
-}
-
-/** A new list's title, and whether it is the reader's own or shared with one of their groups. */
-function NewListModal({ opened, onClose, onCreated }: { opened: boolean; onClose: () => void; onCreated: (list: TodoList) => void }) {
-  // `/groups` lists the shared homes of the reader's own groups, and only those.
-  const groups = useCommand<string[]>('ls /groups');
-  const [title, setTitle] = useState('');
-  const [where, setWhere] = useState<string>('');
-  const [busy, setBusy] = useState(false);
-
-  const create = async (event: FormEvent) => {
-    event.preventDefault();
-    if (!title.trim()) return;
-    setBusy(true);
-    try {
-      const list = await execCommand<TodoList>(`todo-list-create ${shq(title.trim())}${where ? ` --group ${shq(where)}` : ''}`);
-      setTitle('');
-      onCreated(list);
-    } catch (err) {
-      notify({ message: err instanceof Error ? err.message : String(err), color: 'red' });
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return (
-    <Modal opened={opened} onClose={onClose} title='New list'>
-      <Stack component='form' onSubmit={create} gap='sm'>
-        <TextInput label='Title' placeholder='Shopping' value={title} onChange={(event) => setTitle(event.currentTarget.value)} data-autofocus required />
-        <Select
-          label='Shared with'
-          description='A list of your own is yours alone; a group list is shared with every member of the group.'
-          data={[{ value: '', label: 'Nobody, it is mine' }, ...(groups.data ?? []).map((group) => ({ value: group, label: `The ${group} group` }))]}
-          value={where}
-          onChange={(value) => setWhere(value ?? '')}
-          allowDeselect={false}
-        />
-        <Group justify='flex-end'>
-          <Button variant='default' onClick={onClose}>Cancel</Button>
-          <Button type='submit' loading={busy} disabled={!title.trim()}>Create list</Button>
-        </Group>
-      </Stack>
-    </Modal>
   );
 }
