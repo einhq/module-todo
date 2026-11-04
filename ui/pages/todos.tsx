@@ -1,13 +1,31 @@
-import { ActionIcon, Badge, Box, Button, Checkbox, Collapse, Group, Modal, NavLink, Paper, Select, Stack, Text, TextInput, Tooltip, UnstyledButton } from '@mantine/core';
-import { EmptyState, PageBar, PageLoader, TablerIcon } from '@ein/ui/components';
-import { useCommand } from '@ein/ui/hooks';
+import {
+  ActionIcon,
+  Badge,
+  Box,
+  Button,
+  Checkbox,
+  Collapse,
+  Group,
+  Menu,
+  Modal,
+  Paper,
+  ScrollArea,
+  Select,
+  Stack,
+  Text,
+  TextInput,
+  Tooltip,
+  UnstyledButton,
+} from '@mantine/core';
+import { EmptyState, ListFilterInput, PageBar, PageLoader, TablerIcon } from '@ein/ui/components';
+import { useCommand, usePhone } from '@ein/ui/hooks';
 import { shq } from '@ein/ui/lib';
 import { execCommand, notify } from '@ein/ui/signals';
 import { type FormEvent, type ReactNode, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import type { TodoItem, TodoList, TodoListing, TodoMember, TodoMine } from '../../lib/api.ts';
 
-export const handle = { title: 'Todo', pattern: 'mixed' };
+export const handle = { fullBleed: true, title: 'Todo', pattern: 'mixed' };
 
 /** Today in the reader's own time zone, as `YYYY-MM-DD`, which is what a due day is compared with. */
 const today = (): string => {
@@ -37,12 +55,18 @@ const run = async (command: string): Promise<boolean> => {
   }
 };
 
+/** The bar's round buttons: finger-sized on a phone, as the app header's are. */
+const BAR_BUTTON = { size: 36, icon: 22 };
+
 /**
- * `/todos`: the reader's todo lists beside the one open, `?list=<path>`, or, with no list, what is
- * left for them to do on any list (`todo-mine`). `?item=<path>` opens the item's list.
+ * `/todos`: the reader's todo lists in a pane beside the one open, `?list=<path>`, or, with no
+ * list, what is left for them to do on any list (`todo-mine`). `?item=<path>` opens the item's
+ * list. Laid out as the chat page is: the page's bar with its buttons, the lists in a bordered box
+ * in the page's margin, and on a phone, where the box does not fit, a menu of the lists in the bar.
  */
 export default function TodosPage() {
   const [params, setParams] = useSearchParams();
+  const phone = usePhone();
   const listPath = params.get('list') ?? (params.get('item') ? dirname(params.get('item')!) : null);
   const lists = useCommand<TodoList[]>('todo-lists');
   const [creating, setCreating] = useState(false);
@@ -50,22 +74,39 @@ export default function TodosPage() {
   const open = (path: string | null) => setParams(path ? { list: path } : {});
 
   return (
-    <Box>
+    <Paper
+      radius={0}
+      bg='var(--mrx-surface-base)'
+      style={{ display: 'flex', flexDirection: 'column', height: 'calc(100dvh - var(--app-shell-header-offset, 48px))', overflow: 'hidden' }}
+    >
       <PageBar
         title='Todo'
         pattern='mixed'
-        controls={<Button size='xs' variant='light' leftSection={<TablerIcon name='plus' size={14} />} onClick={() => setCreating(true)}>New list</Button>}
+        controls={
+          <>
+            <Tooltip label='New list'>
+              <ActionIcon variant='subtle' size={phone ? BAR_BUTTON.size : undefined} onClick={() => setCreating(true)} aria-label='New list'>
+                <TablerIcon name='plus' size={phone ? BAR_BUTTON.icon : 17} />
+              </ActionIcon>
+            </Tooltip>
+            {phone && <ListsMenu lists={lists.data ?? []} current={listPath} onOpen={open} />}
+          </>
+        }
       />
-      <Group align='flex-start' gap='lg' p='md' wrap='wrap'>
-        <Box w={{ base: '100%', sm: 260 }}>
-          <ListNav lists={lists.data ?? []} loading={lists.loading} current={listPath} onOpen={open} />
+      <Box style={{ display: 'flex', flex: 1, minHeight: 0 }}>
+        <Box w={340} h='100%' p='md' pr={0} style={{ flex: '0 0 340px', overflow: 'hidden' }} visibleFrom='sm'>
+          <Paper h='100%' p='sm' radius='md' withBorder>
+            <ListsPane lists={lists.data ?? []} loading={lists.loading} current={listPath} onOpen={open} />
+          </Paper>
         </Box>
-        <Box style={{ flex: 1, minWidth: 280 }}>
-          {listPath
-            ? <ListView key={listPath} path={listPath} highlight={params.get('item')} onChanged={lists.refetch} />
-            : <MineView onChanged={lists.refetch} onOpen={open} />}
-        </Box>
-      </Group>
+        <ScrollArea type='auto' scrollbars='y' style={{ flex: 1, minWidth: 0 }}>
+          <Box p='md' maw={860}>
+            {listPath
+              ? <ListView key={listPath} path={listPath} highlight={params.get('item')} onChanged={lists.refetch} />
+              : <MineView onChanged={lists.refetch} onOpen={open} />}
+          </Box>
+        </ScrollArea>
+      </Box>
       <NewListModal
         opened={creating}
         onClose={() => setCreating(false)}
@@ -75,37 +116,91 @@ export default function TodosPage() {
           open(list.path);
         }}
       />
-    </Box>
+    </Paper>
   );
 }
 
-/** The lists, the reader's own first and then each group's, under "What's mine". */
-function ListNav({ lists, loading, current, onOpen }: { lists: TodoList[]; loading: boolean; current: string | null; onOpen: (path: string | null) => void }) {
-  const sections = new Map<string, TodoList[]>();
-  for (const list of lists) {
-    const key = list.group ?? '';
-    sections.set(key, [...(sections.get(key) ?? []), list]);
-  }
-  const row = (list: TodoList) => (
-    <NavLink
-      key={list.path}
-      active={list.path === current}
-      label={list.title}
-      rightSection={list.open > 0 ? <Badge size='sm' variant='light' circle>{list.open}</Badge> : undefined}
-      onClick={() => onOpen(list.path)}
-    />
-  );
+/** What a list's row says under its title: how much is left, and whose it is. */
+const listDetail = (list: TodoList): string => `${list.open === 0 ? 'nothing left' : `${list.open} left`} · ${list.group ? `shared with ${list.group}` : 'your own'}`;
+
+/** One row of the lists, as the chat page's recent chats are: the title, and a dimmed line under it. */
+function ListRow({ title, detail, icon, active, onPick }: { title: string; detail: string; icon?: string; active: boolean; onPick: () => void }) {
   return (
-    <Stack gap={4}>
-      <NavLink active={current === null} label="What's mine" leftSection={<TablerIcon name='user' size={16} />} onClick={() => onOpen(null)} />
-      {loading && lists.length === 0 && <Text size='sm' c='dimmed' px='sm'>Reading the lists…</Text>}
-      {[...sections].map(([group, rows]) => (
-        <Box key={group} mt='sm'>
-          <Text size='xs' fw={600} c='dimmed' tt='uppercase' px='sm' mb={2}>{group ? `Shared with ${group}` : 'Your own'}</Text>
-          {rows.map(row)}
+    <UnstyledButton
+      onClick={onPick}
+      style={{ display: 'block', width: '100%', padding: '8px 10px', borderRadius: 'var(--mantine-radius-sm)', background: active ? 'var(--mrx-surface-raised)' : undefined }}
+    >
+      <Group gap={8} wrap='nowrap'>
+        {icon && <TablerIcon name={icon} size={16} />}
+        <Box style={{ minWidth: 0 }}>
+          <Text size='sm' truncate fw={active ? 600 : 400}>{title}</Text>
+          <Text size='xs' c='dimmed' truncate>{detail}</Text>
         </Box>
-      ))}
+      </Group>
+    </UnstyledButton>
+  );
+}
+
+/** "What's mine", then the lists under a filter over their titles. */
+function ListRows({ lists, loading, current, filter, onOpen }: {
+  lists: TodoList[];
+  loading: boolean;
+  current: string | null;
+  filter: string;
+  onOpen: (path: string | null) => void;
+}) {
+  const needle = filter.trim().toLocaleLowerCase();
+  const shown = needle ? lists.filter((list) => list.title.toLocaleLowerCase().includes(needle)) : lists;
+  return (
+    <Stack gap={2}>
+      {!needle && <ListRow title="What's mine" detail='Given to you, on any list' icon='user' active={current === null} onPick={() => onOpen(null)} />}
+      {loading && lists.length === 0 && <Text size='sm' c='dimmed' p='sm'>Reading the lists…</Text>}
+      {!loading && shown.length === 0 && <Text size='sm' c='dimmed' p='sm'>{needle ? 'No lists match' : 'No lists yet'}</Text>}
+      {shown.map((list) => <ListRow key={list.path} title={list.title} detail={listDetail(list)} active={list.path === current} onPick={() => onOpen(list.path)} />)}
     </Stack>
+  );
+}
+
+/** The lists beside the open one, in the page's margin. */
+function ListsPane({ lists, loading, current, onOpen }: { lists: TodoList[]; loading: boolean; current: string | null; onOpen: (path: string | null) => void }) {
+  const [filter, setFilter] = useState('');
+  return (
+    <Stack gap='xs' h='100%'>
+      <ListFilterInput value={filter} onChange={setFilter} what='lists' size='sm' />
+      <ScrollArea type='auto' scrollbars='y' offsetScrollbars='y' style={{ flex: 1, minHeight: 0 }}>
+        <ListRows lists={lists} loading={loading} current={current} filter={filter} onOpen={onOpen} />
+      </ScrollArea>
+    </Stack>
+  );
+}
+
+/** On a phone, the lists as a menu in the bar. */
+function ListsMenu({ lists, current, onOpen }: { lists: TodoList[]; current: string | null; onOpen: (path: string | null) => void }) {
+  const [opened, setOpened] = useState(false);
+  const [filter, setFilter] = useState('');
+  const pick = (path: string | null) => {
+    setOpened(false);
+    onOpen(path);
+  };
+  return (
+    <Menu shadow='md' width={320} position='bottom-end' opened={opened} onChange={setOpened}>
+      <Menu.Target>
+        <Tooltip label='Lists'>
+          <ActionIcon variant='subtle' size={BAR_BUTTON.size} aria-label='Lists'>
+            <TablerIcon name='list' size={BAR_BUTTON.icon} />
+          </ActionIcon>
+        </Tooltip>
+      </Menu.Target>
+      <Menu.Dropdown>
+        <Menu.Label>Lists</Menu.Label>
+        <Box px={4} pb='xs'>
+          <ListFilterInput value={filter} onChange={setFilter} what='lists' size='sm' />
+        </Box>
+        <ScrollArea.Autosize mah={420} type='auto' scrollbars='y' px={4}>
+          <ListRows lists={lists} loading={false} current={current} filter={filter} onOpen={pick} />
+        </ScrollArea.Autosize>
+      </Menu.Dropdown>
+    </Menu>
   );
 }
 
