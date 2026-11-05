@@ -485,9 +485,11 @@ function TodoRow({ item, members, expanded, onExpand, highlighted, onChanged, st
     setBusy(false);
   };
 
-  // A press on the row itself, not on one of its controls, may be the long one that opens it.
+  // A press on the row itself, not on one of its controls, may be the long one that opens it. The
+  // row is a button too, as the drag's handle, which is not a control of its own.
   const onPointerDown = (event: PointerEvent<HTMLDivElement>) => {
-    rowPress = (event.target as HTMLElement).closest('button, input, a, [role=button]') ? null : { at: Date.now(), x: event.clientX, y: event.clientY, moved: false };
+    const control = (event.target as HTMLElement).closest('button, input, a, [role=button]');
+    rowPress = control && control !== event.currentTarget ? null : { at: Date.now(), x: event.clientX, y: event.clientY, moved: false };
   };
   const onPointerMove = (event: PointerEvent<HTMLDivElement>) => {
     if (rowPress && Math.hypot(event.clientX - rowPress.x, event.clientY - rowPress.y) > STILL) rowPress.moved = true;
