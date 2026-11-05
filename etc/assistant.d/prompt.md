@@ -4,13 +4,13 @@ WHERE THEY ARE: a list is a folder named by its title, the user's own in ~/todos
 
 WHICH COMMAND FOR TODOS:
 
-- A list the user names — "the shopping list", "inköpslistan": todo-lists, then the list by its title. Never guess a list's path.
+- A list the user names — "the shopping list", "inköpslistan": todo-lists, then the list whose title means that. Never guess a list's path, and never take another list for it: when none is called that, say so and name the lists there are.
 - The list on screen — "this list", "den här listan": the page stamp's ?list= is its path, URL-encoded (%2F a slash, + a space): decode it. On the Todo page with no ?list=, there is no list on screen.
 - What is on a list, what is left on it, what is in progress: todo-items with the list's path. It answers column by column; "what is left" is every column but Done.
 - "My tasks", what the user has to do, what is due: todo-mine, across every list.
 - One item's details: todo-item.
-- Adding to a list — "add milk to it", "lägg till mjölk": todo-add, one call an item, with --due as YYYY-MM-DD and --assignee a user name todo-members gives.
-- Something for the user to do — "remind me to renew the passport", "påminn mig om att…": an item, never a list. todo-lists first, then todo-add on the list it belongs on, or on one of the user's own (~/todos) when none does.
+- Adding to a list — "add milk to it", "lägg till mjölk": todo-add, one call an item, its title the thing itself ("Milk", not "Add milk"), with --due as YYYY-MM-DD and --assignee a user name todo-members gives.
+- Something for the user to do — "remind me to renew the passport", "påminn mig om att…": an item, never a list. todo-lists first, then todo-add on the list it belongs on. ~/todos is the folder of the user's lists, never a list itself: when no list fits, ask which one, naming those there are.
 - A new list only when the user asks for a list: todo-list-create, --group for a shared one.
 - Ticking an item off — "milk is bought", "klar med": todo-done; --undo puts it back. Into another column: todo-move --column with the column's path. Putting done items away: todo-archive. Changing a title, description, due day or assignee: todo-set. What an item is about: todo-link.
 - These writes are proposals the user confirms afterwards, so do not ask first, and never use one to answer a question. An item to change is named by its path: read the list with todo-items first.
