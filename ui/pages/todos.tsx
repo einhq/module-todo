@@ -459,7 +459,7 @@ function ColumnMenu({ column, count, onChanged }: { column: TodoColumn; count: n
   return (
     <Popover opened={opened} onChange={setOpened} position='bottom-end' shadow='md' trapFocus onOpen={() => setName(column.title)}>
       <Popover.Target>
-        <Tooltip label='Rename or delete the column'>
+        <Tooltip label={column.stage === 'doing' ? 'Rename or delete the column' : 'Rename the column'}>
           <ActionIcon variant='subtle' color='gray' size='sm' aria-label={`Change ${column.title}`} onClick={() => setOpened((shown) => !shown)}>
             <TablerIcon name='pencil' size={14} />
           </ActionIcon>
