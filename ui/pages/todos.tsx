@@ -301,7 +301,9 @@ function TodoCard({ item, members, expanded, onExpand, highlighted, onChanged, d
       {(item.description || aside || item.links) && (
         <>
           <Box style={CARD_FOOT}>
-            <HatField pattern='neutral' kind='foot' />
+            <Box style={CARD_FOOT_FIELD}>
+              <HatField pattern='neutral' kind='foot' />
+            </Box>
           </Box>
           <Box px='xs' pt={6} pb='xs' style={{ position: 'relative' }}>
             {item.description && (
@@ -335,17 +337,23 @@ const CARD_EDGE_HIGHLIGHTED = 'var(--mantine-primary-color-filled)';
 
 /**
  * The grey tiles fading up from a card's foot, as the sidebar's do, lower: behind what the card
- * says under its heading, the field faint and masked away towards the top.
+ * says under its heading, a shade darkening towards the foot, and over it the field, faint and
+ * masked away towards the top.
  */
 const CARD_FOOT = {
   position: 'absolute',
   inset: 'auto 0 0',
-  height: 48,
+  height: 56,
   overflow: 'hidden',
   pointerEvents: 'none',
+  background: 'linear-gradient(180deg, transparent, color-mix(in srgb, var(--mrx-surface-chrome) 30%, transparent))',
+} as const;
+const CARD_FOOT_FIELD = {
+  position: 'absolute',
+  inset: 0,
   opacity: .4,
-  WebkitMaskImage: 'linear-gradient(to top, #000, transparent 85%)',
-  maskImage: 'linear-gradient(to top, #000, transparent 85%)',
+  WebkitMaskImage: 'linear-gradient(to top, #000, transparent)',
+  maskImage: 'linear-gradient(to top, #000, transparent)',
 } as const;
 
 /** A description's first line as plain text, with an ellipsis when more lines follow it; one cut short gets its own from the clamp. */
