@@ -1,0 +1,32 @@
+#!ts
+/** todo-link — link a todo item to what it is about: a picture, an album, any path. */
+import type { CmdReturn, Command } from '@ein/client';
+import type { TodoItem } from '@todo/api';
+import { fail, itemLine, linkItem } from '@todo/store';
+
+const todoLink = async (cmd: Command): CmdReturn => {
+  try {
+    const [item, ...paths] = cmd.args;
+    const linked = await linkItem(cmd, item ?? '', paths);
+    if (cmd.json) await cmd.writeJSON(linked satisfies TodoItem);
+    else for (const link of linked.links ?? []) await cmd.writeLn(`${link.name} -> ${link.target}`);
+    return 0;
+  } catch (error) {
+    return await fail(cmd, 'todo-link', error);
+  }
+};
+
+todoLink.spec = {
+  name: 'todo-link',
+  effect: 'write' as const,
+  description: "Link a todo item to what it is about, such as a picture or an album: a softlink under the item's file, named as what it points at. rm takes one away",
+  args: [
+    { name: 'item', type: 'path' as const, description: 'the item, by its path' },
+    { name: 'path', type: 'path' as const, description: 'what it is about', variadic: true },
+  ],
+  flags: [],
+  examples: ['todo-link ~/todos/Fix/2026-11-05-140322.md /albums/Summer/beach.jpg'],
+  returns: 'The item as it is now, with its links.',
+};
+
+export default todoLink;

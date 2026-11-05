@@ -33,6 +33,22 @@ export type TodoItem = {
   due?: string;
   /** The username of whoever is to do it. */
   assignee?: string;
+  /** Its place on its list, from its front matter; items without one come after those with one. */
+  order?: number;
+  /** What it is about: the softlinks its file holds. */
+  links?: TodoLink[];
+};
+
+/** A link an item holds to something it is about, such as a picture or an album. */
+export type TodoLink = {
+  name: string;
+  /** The link's own path, under the item's. */
+  path: string;
+  /** The path it points at. */
+  target: string;
+  /** The type of the node it points at; absent when that is gone or hidden from the reader. */
+  type?: string;
+  mimetype?: string;
 };
 
 /** `todo-items`: the list and its items, the open ones and then the done ones, each in the order they were added. */

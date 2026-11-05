@@ -106,6 +106,35 @@ Deno.test({ name: 'todo lists', sanitizeResources: false, sanitizeOps: false }, 
       await bo.execString(`rm ${shopping}/batteries.md`);
     });
 
+    await t.step('todo-move puts an item before or after another, numbering the open items in their front matter', async () => {
+      const titles = async () => (await anna.execJson<TodoListing>(`todo-items ${shopping}`)).items.filter((item) => !item.done).map((item) => item.title);
+      const before = await titles();
+      assertEquals(before, ['Milk', 'Rye bread']);
+      const [milk, bread] = (await anna.execJson<TodoListing>(`todo-items ${shopping}`)).items;
+      const moved = await anna.execJson<TodoItem>(`todo-move ${bread.path} --before ${milk.path}`);
+      assertEquals(moved.order, 1);
+      assertEquals(await titles(), ['Rye bread', 'Milk']);
+      assertEquals(await anna.execString(`cat ${milk.path}`), '---\norder: 2\n---\n# Milk\n');
+      // An item added later, with no order, comes after those that have one.
+      await bo.execJson(`todo-add ${shopping} Eggs`);
+      assertEquals(await titles(), ['Rye bread', 'Milk', 'Eggs']);
+      await assertRejects(() => anna.execJson(`todo-move ${milk.path}`));
+    });
+
+    await t.step('an item links to what it is about, the links softlinks under its file that go with it to done/', async () => {
+      await admin.execString('mkdir -p /groups/family/pictures && echo x > /groups/family/pictures/beach.jpg');
+      const fix = await bo.execJson<TodoItem>(`todo-add ${shopping} 'Frame the picture' --link /groups/family/pictures/beach.jpg`);
+      assertEquals(fix.links?.map((link) => [link.name, link.target, link.type]), [['beach.jpg', '/groups/family/pictures/beach.jpg', 'file']]);
+      const twice = await anna.execJson<TodoItem>(`todo-link ${fix.path} /groups/family/pictures/beach.jpg`);
+      assertEquals(twice.links?.map((link) => link.name), ['beach-2.jpg', 'beach.jpg']);
+      await anna.execString(`rm ${fix.path}/beach-2.jpg`);
+      const done = await anna.execJson<TodoItem>(`todo-done ${fix.path}`);
+      // rm of a link leaves the picture where it was.
+      assertEquals(done.links?.map((link) => [link.target, link.type]), [['/groups/family/pictures/beach.jpg', 'file']]);
+      await assertRejects(() => anna.execJson(`todo-link ${done.path} /groups/family/pictures/nothing.jpg`));
+      await bo.execString(`rm -r ${done.path}`);
+    });
+
     await t.step("todo-mine is what is given to one, and one's own lists' items given to nobody", async () => {
       await anna.execJson(`todo-add ${shq(trip)} 'Renew the passport' --due 2026-11-20`);
       await bo.execJson(`todo-add ${shopping} Apples --assignee anna --due 2026-11-10`);

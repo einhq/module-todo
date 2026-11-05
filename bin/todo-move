@@ -1,0 +1,36 @@
+#!ts
+/** todo-move — put an open item just before or just after another on its list. */
+import type { CmdReturn, Command } from '@ein/client';
+import { collectUnknownFlags, parseArgs, reportUnknownFlags } from '@ein/client';
+import type { TodoItem } from '@todo/api';
+import { fail, itemLine, moveItem, TodoError } from '@todo/store';
+
+const todoMove = async (cmd: Command): CmdReturn => {
+  const unknown: string[] = [];
+  const flags = parseArgs(cmd.args, { string: ['before', 'after'], unknown: collectUnknownFlags(unknown) });
+  if (await reportUnknownFlags(cmd, unknown)) return 1;
+  try {
+    if ((flags.before === undefined) === (flags.after === undefined)) throw new TodoError('give one of --before and --after');
+    const item = await moveItem(cmd, flags._[0] === undefined ? '' : String(flags._[0]), flags.before ?? flags.after!, flags.after !== undefined);
+    if (cmd.json) await cmd.writeJSON(item satisfies TodoItem);
+    else await cmd.writeLn(itemLine(item));
+    return 0;
+  } catch (error) {
+    return await fail(cmd, 'todo-move', error);
+  }
+};
+
+todoMove.spec = {
+  name: 'todo-move',
+  effect: 'write' as const,
+  description: "Put an open todo item just before or just after another on its list, numbering the list's open items in their new order",
+  args: [{ name: 'item', type: 'path' as const, description: 'the item, by its path' }],
+  flags: [
+    { name: 'before', type: 'path' as const, description: 'the item to put it before' },
+    { name: 'after', type: 'path' as const, description: 'the item to put it after' },
+  ],
+  examples: ['todo-move /groups/users/todos/Shopping/2026-11-05-140322.md --before /groups/users/todos/Shopping/2026-11-04-091500.md'],
+  returns: 'The item as it is now, with its order.',
+};
+
+export default todoMove;

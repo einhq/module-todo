@@ -5,8 +5,9 @@
  * enter, a group's in `/groups/<group>/todos`, which every member may read and write and nobody
  * else sees. Its name is its title. An item is a markdown file in the list: YAML front matter for
  * `due`, `assignee`, `done` and `done-by`, the first `# heading` its title and the rest its notes.
- * The file is named for when it was added unless someone names it otherwise; the order of the
- * items is their birthtime. A done item is in the list's `done/`, whether or not its front matter
+ * The file is named for when it was added unless someone names it otherwise. Items are in the
+ * order their `order` says, and those without one after them by birthtime. The softlinks the
+ * file holds as children are what the item is about: a picture, an album. A done item is in the list's `done/`, whether or not its front matter
  * says when, so `ls` of a list is what is left on it. Who may see and change a list is the tree's
  * own access, and nothing here checks it: every read and write is made with the caller's access.
  */
@@ -24,7 +25,7 @@ import {
   type UserAttrs,
 } from '@ein/client';
 import { GROUP_HOMES_PATH, groupHomePath, USERS_PATH } from '@ein/paths';
-import type { TodoItem, TodoList, TodoMember } from './api.ts';
+import type { TodoItem, TodoLink, TodoList, TodoMember } from './api.ts';
 
 /** The folder of lists in a home, a person's or a group's. */
 const TODOS_DIR = 'todos';
@@ -38,6 +39,9 @@ const ITEM_MIMETYPE = 'text/markdown';
 const PERSONAL_MODE = 0o700;
 
 type FileAttrs = { mimetype?: string };
+
+/** A node's type, as a softlink's own node has it. */
+const SOFTLINK_TYPE = 'softlink';
 
 /** An item file as read: its front matter, and the markdown after it. */
 type ItemDoc = { meta: Record<string, unknown>; body: string };
@@ -114,7 +118,7 @@ const parseItem = (text: string): ItemDoc => {
 };
 
 /** The front matter's keys the module writes, in the order it writes them. */
-const KNOWN_KEYS = ['due', 'assignee', 'done', 'done-by'];
+const KNOWN_KEYS = ['due', 'assignee', 'order', 'done', 'done-by'];
 
 /** An item's text from its front matter and body: the known keys first, then whatever else it had. */
 const renderItem = ({ meta, body }: ItemDoc): string => {
@@ -122,6 +126,7 @@ const renderItem = ({ meta, body }: ItemDoc): string => {
   // A day and a timestamp are written bare, as YAML reads them back: as dates, which `itemOf` takes.
   if (meta.due !== undefined) lines.push(`due: ${dayOf(meta.due) ?? JSON.stringify(String(meta.due))}`);
   if (meta.assignee !== undefined) lines.push(stringifyYaml({ assignee: meta.assignee }).trimEnd());
+  if (meta.order !== undefined) lines.push(stringifyYaml({ order: meta.order }).trimEnd());
   if (meta.done !== undefined) lines.push(`done: ${timeOf(meta.done) ?? JSON.stringify(String(meta.done))}`);
   if (meta['done-by'] !== undefined) lines.push(stringifyYaml({ 'done-by': meta['done-by'] }).trimEnd());
   const rest = Object.fromEntries(Object.entries(meta).filter(([key, value]) => !KNOWN_KEYS.includes(key) && value !== undefined));
@@ -152,13 +157,16 @@ const textOf = (value: unknown): string | undefined => typeof value === 'string'
 /** A file's name without its extension, for an item with no heading. */
 const stem = (name: string): string => name.replace(/\.[^.]+$/, '') || name;
 
-const itemOf = (list: string, path: string, doc: ItemDoc, done: boolean): TodoItem => {
+const orderOf = (value: unknown): number | undefined => typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+
+const itemOf = (list: string, path: string, doc: ItemDoc, done: boolean, links: TodoLink[]): TodoItem => {
   const heading = HEADING.exec(doc.body);
   const notes = (heading ? doc.body.replace(HEADING, '') : doc.body).trim();
   const due = dayOf(doc.meta.due);
   const assignee = textOf(doc.meta.assignee);
   const doneAt = done ? timeOf(doc.meta.done) : undefined;
   const doneBy = done ? textOf(doc.meta['done-by']) : undefined;
+  const order = orderOf(doc.meta.order);
   return {
     path,
     list,
@@ -169,8 +177,29 @@ const itemOf = (list: string, path: string, doc: ItemDoc, done: boolean): TodoIt
     ...(doneBy ? { doneBy } : {}),
     ...(due ? { due } : {}),
     ...(assignee ? { assignee } : {}),
+    ...(order !== undefined ? { order } : {}),
+    ...(links.length > 0 ? { links } : {}),
   };
 };
+
+/** Items with an `order` by it, then the rest as they came; the sort is stable. */
+const byOrder = (a: TodoItem, b: TodoItem): number => a.order === undefined ? (b.order === undefined ? 0 : 1) : b.order === undefined ? -1 : a.order - b.order;
+
+/** The links among an item's children, each with what it points at; one pointing at nothing the caller can see has no type. */
+const linksIn = async (cmd: Command, item: string, entries: NodeChildEntry[]): Promise<TodoLink[]> =>
+  await Promise.all(
+    entries.filter((entry) => entry.node.type === SOFTLINK_TYPE && entry.node.props.softlink).sort((a, b) => a.name.localeCompare(b.name)).map(async (entry) => {
+      const target = resolve(item, entry.node.props.softlink!);
+      const node = await cmd.sys.vfs.get<FileAttrs>(cmd.access, target).catch(() => undefined);
+      return {
+        name: entry.name,
+        path: `${item}/${entry.name}`,
+        target,
+        ...(node ? { type: node.type } : {}),
+        ...(node?.attrs.mimetype ? { mimetype: node.attrs.mimetype } : {}),
+      };
+    }),
+  );
 
 const readText = async (cmd: Command, path: string): Promise<string> => {
   const handle = await cmd.sys.vfs.open(cmd.access, path, { mode: 'r' });
@@ -190,14 +219,20 @@ const writeText = async (cmd: Command, path: string, text: string): Promise<void
   }
 };
 
-/** The items of the list at `list` among `entries`, read, in the order they were added. */
-const readItems = async (cmd: Command, list: string, dir: string, entries: NodeChildEntry<FileAttrs>[], done: boolean): Promise<TodoItem[]> =>
-  await Promise.all(
-    entries.filter(isItem).sort(byAdded).map(async (entry) => {
-      const path = `${dir}/${entry.name}`;
-      return itemOf(list, path, parseItem(await readText(cmd, path)), done);
-    }),
-  );
+/** The items of the list at `list` among `entries`, read with their links, in their order. */
+const readItems = async (cmd: Command, list: string, dir: string, entries: NodeChildEntry<FileAttrs>[], done: boolean): Promise<TodoItem[]> => {
+  const items = entries.filter(isItem).sort(byAdded);
+  // Only an item with children can hold links, and those are listed in one read.
+  const holding = items.filter((entry) => entry.childCount > 0).map((entry) => `${dir}/${entry.name}`);
+  const listed = await cmd.sys.vfs.childrenMany(cmd.access, holding);
+  const childrenOf = new Map(holding.map((path, index) => [path, listed[index].status === 'fulfilled' ? listed[index].value : []]));
+  const read = await Promise.all(items.map(async (entry) => {
+    const path = `${dir}/${entry.name}`;
+    const [text, links] = await Promise.all([readText(cmd, path), linksIn(cmd, path, childrenOf.get(path) ?? [])]);
+    return itemOf(list, path, parseItem(text), done, links);
+  }));
+  return read.sort(byOrder);
+};
 
 // --- Lists --------------------------------------------------------------------------------------
 
@@ -327,8 +362,9 @@ const itemAt = async (cmd: Command, arg: string | undefined): Promise<{ item: To
   }
   const place = placeOf(cmd, path);
   if (!place || !isItem({ node, name: basename(path), childCount: 0 })) throw new TodoError(`${path}: not a todo item`);
-  const doc = parseItem(await readText(cmd, path));
-  return { item: itemOf(place.list, path, doc, place.done), doc };
+  const [text, entries] = await Promise.all([readText(cmd, path), children(cmd, path)]);
+  const doc = parseItem(text);
+  return { item: itemOf(place.list, path, doc, place.done, await linksIn(cmd, path, entries)), doc };
 };
 
 /** The item `arg` names, a path; a `TodoError` when it is not an item the caller can read. */
@@ -363,17 +399,64 @@ const addedName = (): string => {
 };
 
 /** Add an item titled `title` to the list at `list`, named for now. */
-export const addItem = async (cmd: Command, list: string, title: string, extra: { due?: string; assignee?: string }): Promise<TodoItem> => {
+export const addItem = async (cmd: Command, list: string, title: string, extra: { due?: string; assignee?: string; links?: string[] }): Promise<TodoItem> => {
   const name = title.trim();
   if (!name) throw new TodoError('an item needs a title');
   const meta: Record<string, unknown> = {};
   if (extra.due) meta.due = dueDay(extra.due);
   if (extra.assignee) meta.assignee = await assignable(cmd, list, extra.assignee);
+  const targets = await linkable(cmd, extra.links ?? []);
   // The name is free in done/ too, so the item can be ticked off and back without being renamed.
   const file = await freeName(cmd, [list, `${list}/${DONE_DIR}`], addedName());
   await cmd.sys.vfs.create(cmd.access, 'file', list, file, { props: { tier: 'db' }, attrs: { name: file, mimetype: ITEM_MIMETYPE, size: 0 } });
   await writeText(cmd, `${list}/${file}`, renderItem({ meta, body: `# ${name}\n` }));
+  await makeLinks(cmd, `${list}/${file}`, targets);
   return readItem(cmd, `${list}/${file}`);
+};
+
+/** `paths` resolved, each something the caller can see, or a `TodoError` naming the first that is not. */
+const linkable = async (cmd: Command, paths: string[]): Promise<string[]> =>
+  await Promise.all(paths.map(async (arg) => {
+    const target = resolve(cmd.cwd, arg);
+    if (!await cmd.sys.vfs.exists(cmd.access, target)) throw new TodoError(`${target}: nothing there to link`);
+    return target;
+  }));
+
+/** A softlink under the item at `item` to each of `targets`, named as the target is, numbered when that is taken. */
+const makeLinks = async (cmd: Command, item: string, targets: string[]): Promise<void> => {
+  for (const target of targets) {
+    const name = await freeName(cmd, [item], basename(target) || 'root');
+    await cmd.sys.vfs.create(cmd.access, SOFTLINK_TYPE, item, name, { props: { mode: 0o777, softlink: target } });
+  }
+};
+
+/** Link the item at `arg` to each of `paths`: what it is about. */
+export const linkItem = async (cmd: Command, arg: string, paths: string[]): Promise<TodoItem> => {
+  if (paths.length === 0) throw new TodoError('nothing to link: give one or more paths');
+  const { item } = await itemAt(cmd, arg);
+  await makeLinks(cmd, item.path, await linkable(cmd, paths));
+  return readItem(cmd, item.path);
+};
+
+/**
+ * Put the open item at `arg` just before or just after `other` on its list, and number every open
+ * item of the list from 1 in its new order, writing only those whose number changed.
+ */
+export const moveItem = async (cmd: Command, arg: string, other: string, after: boolean): Promise<TodoItem> => {
+  const { item } = await itemAt(cmd, arg);
+  const { item: beside } = await itemAt(cmd, other);
+  if (item.done || beside.done) throw new TodoError('only an open item has a place on its list');
+  if (beside.list !== item.list) throw new TodoError(`${beside.path} is not on the same list`);
+  const open = (await readList(cmd, item.list)).items.filter((each) => !each.done && each.path !== item.path);
+  const at = open.findIndex((each) => each.path === beside.path);
+  if (at === -1) throw new TodoError(`${beside.path}: not an item of the list`);
+  open.splice(after ? at + 1 : at, 0, item);
+  for (const [index, each] of open.entries()) {
+    if (each.order === index + 1) continue;
+    const { doc } = await itemAt(cmd, each.path);
+    await writeText(cmd, each.path, renderItem({ ...doc, meta: { ...doc.meta, order: index + 1 } }));
+  }
+  return readItem(cmd, item.path);
 };
 
 /** The changes `todo-set` makes; null takes a field away. */

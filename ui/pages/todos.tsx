@@ -4,10 +4,12 @@ import {
   Box,
   Button,
   Checkbox,
+  CloseButton,
   Collapse,
   Group,
   Menu,
   Paper,
+  Popover,
   ScrollArea,
   Select,
   Stack,
@@ -17,13 +19,15 @@ import {
   Tooltip,
   UnstyledButton,
 } from '@mantine/core';
+import { DatePicker } from '@mantine/dates';
+import { DragDropContext, Draggable, Droppable, type DropResult } from '@hello-pangea/dnd';
 import { EmptyState, ListFilterInput, PageBar, PageLoader, TablerIcon } from '@ein/ui/components';
 import { useCommand, usePhone } from '@ein/ui/hooks';
-import { shq } from '@ein/ui/lib';
-import { execCommand, notify, openDialog } from '@ein/ui/signals';
+import { fileUrl, lightboxRoute, shq, thumbnailUrl } from '@ein/ui/lib';
+import { execCommand, notify, openDialog, openFullscreen, openRoute } from '@ein/ui/signals';
 import { type FormEvent, type ReactNode, useEffect, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
-import type { TodoItem, TodoList, TodoListing, TodoMember, TodoMine } from '../../lib/api.ts';
+import { useNavigate, useSearchParams } from 'react-router-dom';
+import type { TodoItem, TodoLink, TodoList, TodoListing, TodoMember, TodoMine } from '../../lib/api.ts';
 
 export const handle = { fullBleed: true, title: 'Todo', pattern: 'mixed' };
 
@@ -199,12 +203,112 @@ function ListsMenu({ lists, current, onOpen }: { lists: TodoList[]; current: str
   );
 }
 
-/** One item: its box, title and notes, when it is due and whose it is; the pencil opens it to change. */
-function ItemRow({ item, members, highlight, aside, onChanged }: {
+/** Whether a link points at a picture or a video, which the lightbox shows and which has a thumbnail. */
+const isMedia = (link: TodoLink): boolean => link.type === 'file' && /^(image|video)\//.test(link.mimetype ?? '');
+
+/** The glyph for what a link points at. */
+const linkIcon = (link: TodoLink): string => {
+  if (!link.type) return 'link-off';
+  if (isMedia(link)) return 'photo';
+  return ({ album: 'library-photo', directory: 'folder', person: 'user', location: 'map-pin' } as Record<string, string>)[link.type] ?? 'file';
+};
+
+/**
+ * What an item is about: a thumbnail or a glyph, and the link's name. It opens what it points at —
+ * the page a module gives its type, the lightbox for a picture, or the file itself — and with
+ * `onRemove` has a cross that takes the link away.
+ */
+function LinkChip({ link, onRemove }: { link: TodoLink; onRemove?: () => void }) {
+  const navigate = useNavigate();
+  const [broken, setBroken] = useState(false);
+  const open = () => {
+    if (!link.type) return;
+    const route = openRoute(link.type, link.target);
+    if (route) navigate(route);
+    else if (isMedia(link)) openFullscreen(lightboxRoute(link.target));
+    else if (link.type === 'file') globalThis.open(fileUrl(link.target), '_blank');
+  };
+  return (
+    <Group
+      gap={6}
+      wrap='nowrap'
+      pl={4}
+      pr={onRemove ? 2 : 8}
+      py={2}
+      style={{ borderRadius: 'var(--mantine-radius-sm)', background: 'var(--mrx-surface-raised)', maxWidth: 260 }}
+    >
+      <Tooltip label={link.type ? link.target : `${link.target}: gone, or not yours to see`}>
+        <UnstyledButton onClick={open} disabled={!link.type} style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
+          {isMedia(link) && !broken
+            ? (
+              <img
+                src={thumbnailUrl(link.target, true)}
+                alt=''
+                width={28}
+                height={28}
+                onError={() => setBroken(true)}
+                style={{ width: 28, height: 28, objectFit: 'cover', borderRadius: 4, display: 'block', flexShrink: 0 }}
+              />
+            )
+            : <TablerIcon name={linkIcon(link)} size={16} color={link.type ? undefined : 'var(--mantine-color-red-filled)'} />}
+          <Text size='xs' truncate c={link.type ? undefined : 'dimmed'}>{link.name}</Text>
+        </UnstyledButton>
+      </Tooltip>
+      {onRemove && <CloseButton size='xs' onClick={onRemove} aria-label={`Unlink ${link.name}`} />}
+    </Group>
+  );
+}
+
+/**
+ * The due day as a calendar button that opens a date picker; once a day is set the button says
+ * it, and the picker can take it away again.
+ */
+function DueButton({ value, onChange, disabled }: { value: string; onChange: (day: string) => void; disabled?: boolean }) {
+  const [opened, setOpened] = useState(false);
+  const pick = (day: string) => {
+    onChange(day);
+    setOpened(false);
+  };
+  return (
+    <Popover opened={opened} onChange={setOpened} position='bottom-end' shadow='md'>
+      <Popover.Target>
+        {value
+          ? (
+            <Button
+              variant='light'
+              color='gray'
+              size='xs'
+              leftSection={<TablerIcon name='calendar' size={14} />}
+              onClick={() => setOpened((shown) => !shown)}
+              disabled={disabled}
+            >
+              {dueLabel(value)}
+            </Button>
+          )
+          : (
+            <Tooltip label='Due'>
+              <ActionIcon variant='subtle' color='gray' size='lg' aria-label='Due' onClick={() => setOpened((shown) => !shown)} disabled={disabled}>
+                <TablerIcon name='calendar' size={18} />
+              </ActionIcon>
+            </Tooltip>
+          )}
+      </Popover.Target>
+      <Popover.Dropdown>
+        <DatePicker value={value || null} onChange={(day) => pick(day ?? '')} />
+        {value && <Button variant='subtle' color='gray' size='xs' fullWidth mt='xs' onClick={() => pick('')}>No due day</Button>}
+      </Popover.Dropdown>
+    </Popover>
+  );
+}
+
+/** One item: its box, title, notes and links, when it is due and whose it is; the pencil opens it to change. */
+function ItemRow({ item, members, highlight, aside, handle, onChanged }: {
   item: TodoItem;
   members: TodoMember[];
   highlight?: boolean;
   aside?: ReactNode;
+  /** What the item is dragged by, where it can be. */
+  handle?: ReactNode;
   onChanged: () => void;
 }) {
   const [editing, setEditing] = useState(false);
@@ -225,19 +329,26 @@ function ItemRow({ item, members, highlight, aside, onChanged }: {
       wrap='nowrap'
       py={6}
       px='xs'
-      style={{ borderRadius: 'var(--mantine-radius-sm)', background: highlight ? 'var(--mantine-primary-color-light)' : undefined }}
+      align='flex-start'
+      style={{ borderRadius: 'var(--mantine-radius-sm)', background: highlight ? 'var(--mantine-primary-color-light)' : 'var(--mrx-surface-base)' }}
     >
-      <Checkbox checked={item.done} disabled={busy} onChange={toggle} aria-label={item.done ? `Mark ${item.title} not done` : `Mark ${item.title} done`} />
+      {handle}
+      <Checkbox mt={2} checked={item.done} disabled={busy} onChange={toggle} aria-label={item.done ? `Mark ${item.title} not done` : `Mark ${item.title} done`} />
       <Box style={{ flex: 1, minWidth: 0 }}>
         <Text size='sm' td={item.done ? 'line-through' : undefined} c={item.done ? 'dimmed' : undefined} truncate>{item.title}</Text>
         {item.notes && <Text size='xs' c='dimmed' lineClamp={2} style={{ whiteSpace: 'pre-line' }}>{item.notes}</Text>}
+        {item.links && (
+          <Group gap={6} mt={4}>
+            {item.links.map((link) => <LinkChip key={link.path} link={link} />)}
+          </Group>
+        )}
         {aside}
       </Box>
-      {item.due && <Badge size='sm' variant={overdue ? 'filled' : 'light'} color={overdue ? 'red' : 'gray'} tt='none'>{dueLabel(item.due)}</Badge>}
-      {who && <Badge size='sm' variant='outline' color='gray' tt='none' leftSection={<TablerIcon name='user' size={10} />}>{who}</Badge>}
+      {item.due && <Badge mt={2} size='sm' variant={overdue ? 'filled' : 'light'} color={overdue ? 'red' : 'gray'} tt='none'>{dueLabel(item.due)}</Badge>}
+      {who && <Badge mt={2} size='sm' variant='outline' color='gray' tt='none' leftSection={<TablerIcon name='user' size={10} />}>{who}</Badge>}
       {item.done && (item.doneBy || item.doneAt) && (
         <Tooltip label={doneLabel(item, members)}>
-          <Box component='span' style={{ display: 'inline-flex' }}>
+          <Box component='span' mt={3} style={{ display: 'inline-flex' }}>
             <TablerIcon name='check' size={14} color='var(--mantine-color-dimmed)' />
           </Box>
         </Tooltip>
@@ -255,12 +366,17 @@ const doneLabel = (item: TodoItem, members: TodoMember[]): string => {
   return `Done${who}${item.doneAt ? `, ${new Date(item.doneAt).toLocaleString()}` : ''}`;
 };
 
-/** An item opened to change: its title, notes, due day and whose it is, saved together; or taken to the trash. */
+/**
+ * An item opened to change: its title, notes, due day and whose it is, saved together; its links,
+ * each taken away or added at once; or the item taken to the trash.
+ */
 function ItemEditor({ item, members, onDone, onChanged }: { item: TodoItem; members: TodoMember[]; onDone: () => void; onChanged: () => void }) {
   const [title, setTitle] = useState(item.title);
   const [notes, setNotes] = useState(item.notes ?? '');
   const [due, setDue] = useState(item.due ?? '');
   const [assignee, setAssignee] = useState<string | null>(item.assignee ?? null);
+  const [links, setLinks] = useState<TodoLink[]>(item.links ?? []);
+  const [linking, setLinking] = useState('');
   const [busy, setBusy] = useState(false);
 
   const save = async (event: FormEvent) => {
@@ -275,6 +391,25 @@ function ItemEditor({ item, members, onDone, onChanged }: { item: TodoItem; memb
       onDone();
     }
     setBusy(false);
+  };
+
+  const unlink = async (link: TodoLink) => {
+    if (await run(`rm ${shq(link.path)}`)) {
+      setLinks((shown) => shown.filter((other) => other.path !== link.path));
+      onChanged();
+    }
+  };
+
+  const link = async () => {
+    if (!linking.trim()) return;
+    try {
+      const linked = await execCommand<TodoItem>(`todo-link ${shq(item.path)} ${shq(linking.trim())}`);
+      setLinks(linked.links ?? []);
+      setLinking('');
+      onChanged();
+    } catch (err) {
+      notify({ message: err instanceof Error ? err.message : String(err), color: 'red' });
+    }
   };
 
   const remove = async () => {
@@ -292,17 +427,40 @@ function ItemEditor({ item, members, onDone, onChanged }: { item: TodoItem; memb
       <Stack gap='xs'>
         <TextInput value={title} onChange={(event) => setTitle(event.currentTarget.value)} aria-label='Title' data-autofocus autoFocus />
         <Textarea placeholder='Notes' autosize minRows={1} maxRows={8} value={notes} onChange={(event) => setNotes(event.currentTarget.value)} aria-label='Notes' />
-        <Group gap='xs' grow>
-          <TextInput type='date' label='Due' value={due} onChange={(event) => setDue(event.currentTarget.value)} />
+        <Group gap='xs' wrap='nowrap'>
+          <DueButton value={due} onChange={setDue} />
           <Select
-            label='Who'
+            style={{ flex: 1 }}
             placeholder='Anyone'
             clearable
             data={members.map((member) => ({ value: member.username, label: member.name }))}
             value={assignee}
             onChange={setAssignee}
+            aria-label='Who'
           />
         </Group>
+        {links.length > 0 && (
+          <Group gap={6}>
+            {links.map((each) => <LinkChip key={each.path} link={each} onRemove={() => void unlink(each)} />)}
+          </Group>
+        )}
+        <TextInput
+          placeholder='Link a path, such as a picture or an album'
+          value={linking}
+          onChange={(event) => setLinking(event.currentTarget.value)}
+          onKeyDown={(event) => {
+            if (event.key !== 'Enter') return;
+            event.preventDefault();
+            void link();
+          }}
+          leftSection={<TablerIcon name='link' size={14} />}
+          rightSection={linking.trim() && (
+            <ActionIcon variant='subtle' size='sm' onClick={() => void link()} aria-label='Link'>
+              <TablerIcon name='plus' size={14} />
+            </ActionIcon>
+          )}
+          aria-label='Link a path'
+        />
         <Group justify='space-between'>
           <Button variant='subtle' color='red' size='xs' leftSection={<TablerIcon name='trash' size={14} />} onClick={remove} disabled={busy}>Move to trash</Button>
           <Group gap='xs'>
@@ -346,7 +504,7 @@ function AddItem({ list, members, onAdded }: { list: string; members: TodoMember
         disabled={busy}
         aria-label='New item'
       />
-      <TextInput type='date' w={150} value={due} onChange={(event) => setDue(event.currentTarget.value)} disabled={busy} aria-label='Due' />
+      <DueButton value={due} onChange={setDue} disabled={busy} />
       {members.length > 1 && (
         <Select
           w={150}
@@ -363,11 +521,14 @@ function AddItem({ list, members, onAdded }: { list: string; members: TodoMember
   );
 }
 
-/** One list: its open items, the line to add one, and the done ones folded away. */
+/** One list: its open items, dragged by their grips to reorder, the line to add one, and the done ones folded away. */
 function ListView({ path, highlight, onChanged }: { path: string; highlight: string | null; onChanged: () => void }) {
   const listing = useCommand<TodoListing>(`todo-items ${shq(path)}`);
   const members = useCommand<TodoMember[]>(`todo-members ${shq(path)}`);
   const [showDone, setShowDone] = useState(false);
+  // The open items' paths as dropped, shown until the list is read again.
+  const [dropped, setDropped] = useState<string[] | null>(null);
+  useEffect(() => setDropped(null), [listing.data]);
 
   if (listing.loading && !listing.data) return <PageLoader />;
   if (listing.error || !listing.data) return <EmptyState title='This list could not be read'>{listing.error?.message}</EmptyState>;
@@ -377,9 +538,21 @@ function ListView({ path, highlight, onChanged }: { path: string; highlight: str
     void listing.refetch();
     onChanged();
   };
-  const open = items.filter((item) => !item.done);
+  const listed = items.filter((item) => !item.done);
+  const open = dropped ? dropped.flatMap((each) => listed.filter((item) => item.path === each)) : listed;
   const done = items.filter((item) => item.done);
   const people = members.data ?? [];
+
+  const drop = async ({ source, destination }: DropResult) => {
+    if (!destination || destination.index === source.index) return;
+    const paths = open.map((item) => item.path);
+    const [moved] = paths.splice(source.index, 1);
+    paths.splice(destination.index, 0, moved);
+    setDropped(paths);
+    const beside = destination.index === 0 ? `--before ${shq(paths[1])}` : `--after ${shq(paths[destination.index - 1])}`;
+    if (await run(`todo-move ${shq(moved)} ${beside}`)) changed();
+    else setDropped(null);
+  };
 
   return (
     <Stack gap='xs'>
@@ -388,7 +561,34 @@ function ListView({ path, highlight, onChanged }: { path: string; highlight: str
         {list.group && <Badge variant='light' color='gray' tt='none'>Shared with {list.group}</Badge>}
       </Group>
       {open.length === 0 && <Text size='sm' c='dimmed'>Nothing left to do here.</Text>}
-      {open.map((item) => <ItemRow key={item.path} item={item} members={people} highlight={item.path === highlight} onChanged={changed} />)}
+      <DragDropContext onDragEnd={(result) => void drop(result)}>
+        <Droppable droppableId='open'>
+          {(droppable) => (
+            <div ref={droppable.innerRef} {...droppable.droppableProps}>
+              {open.map((item, index) => (
+                <Draggable key={item.path} draggableId={item.path} index={index}>
+                  {(draggable) => (
+                    <div ref={draggable.innerRef} {...draggable.draggableProps}>
+                      <ItemRow
+                        item={item}
+                        members={people}
+                        highlight={item.path === highlight}
+                        onChanged={changed}
+                        handle={
+                          <Box {...draggable.dragHandleProps} mt={2} c='dimmed' style={{ display: 'flex', cursor: 'grab' }} aria-label={`Move ${item.title}`}>
+                            <TablerIcon name='grip-vertical' size={16} />
+                          </Box>
+                        }
+                      />
+                    </div>
+                  )}
+                </Draggable>
+              ))}
+              {droppable.placeholder}
+            </div>
+          )}
+        </Droppable>
+      </DragDropContext>
       <AddItem list={list.path} members={people} onAdded={changed} />
       {done.length > 0 && (
         <Box mt='md'>

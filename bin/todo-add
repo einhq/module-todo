@@ -7,11 +7,15 @@ import { addItem, fail, itemLine, listAt } from '@todo/store';
 
 const todoAdd = async (cmd: Command): CmdReturn => {
   const unknown: string[] = [];
-  const flags = parseArgs(cmd.args, { string: ['due', 'assignee'], unknown: collectUnknownFlags(unknown) });
+  const flags = parseArgs(cmd.args, { string: ['due', 'assignee'], collect: ['link'], unknown: collectUnknownFlags(unknown) });
   if (await reportUnknownFlags(cmd, unknown)) return 1;
   const [list, ...words] = flags._.map(String);
   try {
-    const item = await addItem(cmd, await listAt(cmd, list), words.join(' '), { due: flags.due || undefined, assignee: flags.assignee || undefined });
+    const item = await addItem(cmd, await listAt(cmd, list), words.join(' '), {
+      due: flags.due || undefined,
+      assignee: flags.assignee || undefined,
+      links: (flags.link as string[] | undefined)?.map(String),
+    });
     if (cmd.json) await cmd.writeJSON(item satisfies TodoItem);
     else await cmd.writeLn(itemLine(item));
     return 0;
@@ -31,9 +35,10 @@ todoAdd.spec = {
   flags: [
     { name: 'due', type: 'string' as const, description: 'the day it is due, as YYYY-MM-DD' },
     { name: 'assignee', type: 'user' as const, description: "who is to do it: a member of the list's group, or you on a list of your own" },
+    { name: 'link', type: 'path' as const, description: 'what it is about, such as a picture or an album: a softlink under the item', repeatable: true },
   ],
   examples: ['todo-add /groups/users/todos/Shopping Milk', "todo-add ~/todos/'Before the trip' 'Renew the passport' --due 2026-12-01"],
-  returns: 'The new item: path, list, title, done, due and assignee.',
+  returns: 'The new item: path, list, title, done, due, assignee and links.',
 };
 
 export default todoAdd;
