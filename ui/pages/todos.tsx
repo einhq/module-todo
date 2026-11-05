@@ -306,33 +306,26 @@ function TodoCard({ item, members, expanded, onExpand, highlighted, onChanged, d
         </Group>
       </Group>
       {(item.description || aside || item.links) && (
-        <>
-          <Box style={CARD_FOOT}>
-            <Box style={CARD_FOOT_FIELD}>
-              <HatField pattern='neutral' kind='foot' />
+        <Box px='xs' pt={6} pb='xs'>
+          {item.description && (
+            // Not a button: a drag cannot start on one.
+            <Box onClick={toggle} style={{ cursor: 'pointer' }} aria-expanded={expanded}>
+              {expanded
+                ? (
+                  <Box fz='sm'>
+                    <Markdown content={item.description} breaks />
+                  </Box>
+                )
+                : <Text size='sm' c='dimmed' lineClamp={1}>{firstLine(item.description)}</Text>}
             </Box>
-          </Box>
-          <Box px='xs' pt={6} pb='xs' style={{ position: 'relative' }}>
-            {item.description && (
-              // Not a button: a drag cannot start on one.
-              <Box onClick={toggle} style={{ cursor: 'pointer' }} aria-expanded={expanded}>
-                {expanded
-                  ? (
-                    <Box fz='sm'>
-                      <Markdown content={item.description} breaks />
-                    </Box>
-                  )
-                  : <Text size='sm' c='dimmed' lineClamp={1}>{firstLine(item.description)}</Text>}
-              </Box>
-            )}
-            {aside && <Group gap={6} mt={item.description ? 6 : 0} wrap='wrap'>{aside}</Group>}
-            {item.links && (
-              <Group gap={6} mt={item.description || aside ? 6 : 0}>
-                {item.links.map((link) => <LinkChip key={link.path} link={link} />)}
-              </Group>
-            )}
-          </Box>
-        </>
+          )}
+          {aside && <Group gap={6} mt={item.description ? 6 : 0} wrap='wrap'>{aside}</Group>}
+          {item.links && (
+            <Group gap={6} mt={item.description || aside ? 6 : 0}>
+              {item.links.map((link) => <LinkChip key={link.path} link={link} />)}
+            </Group>
+          )}
+        </Box>
       )}
     </Paper>
   );
@@ -356,35 +349,14 @@ const AGE_SPAN = 28;
  * it was made, is grey. All are dark, so the tint stays behind the title rather than over it.
  */
 const ageColor = (item: TodoItem): string => {
-  if (item.done || !item.added) return 'hsl(220 8% 34%)';
+  if (item.done || !item.added) return 'hsl(220 8% 24%)';
   const days = Math.max(0, (Date.now() - Date.parse(item.added)) / 86_400_000);
-  return `hsl(${Math.round(130 * (1 - Math.min(1, days / AGE_SPAN)))} 50% 32%)`;
+  return `hsl(${Math.round(130 * (1 - Math.min(1, days / AGE_SPAN)))} 50% 22%)`;
 };
 
 /** When a card was added, in words, for its band's hover. */
 const addedLabel = (item: TodoItem): string | undefined =>
   item.added ? `Added ${new Date(item.added).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })}` : undefined;
-
-/**
- * The grey tiles fading up from a card's foot, as the sidebar's do, lower: behind what the card
- * says under its heading, a shade darkening towards the foot, and over it the field, faint and
- * masked away towards the top.
- */
-const CARD_FOOT = {
-  position: 'absolute',
-  inset: 'auto 0 0',
-  height: 14,
-  overflow: 'hidden',
-  pointerEvents: 'none',
-  background: 'linear-gradient(180deg, transparent, color-mix(in srgb, var(--mrx-surface-chrome) 30%, transparent))',
-} as const;
-const CARD_FOOT_FIELD = {
-  position: 'absolute',
-  inset: 0,
-  opacity: .4,
-  WebkitMaskImage: 'linear-gradient(to top, #000, transparent)',
-  maskImage: 'linear-gradient(to top, #000, transparent)',
-} as const;
 
 /** A description's first line as plain text, with an ellipsis when more lines follow it; one cut short gets its own from the clamp. */
 const firstLine = (description: string): string => {
