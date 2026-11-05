@@ -271,8 +271,9 @@ function TodoCard({ item, members, expanded, onExpand, highlighted, onChanged, d
       }}
       style={{ cursor: dragHandle ? 'grab' : undefined, borderColor: highlighted ? 'var(--mantine-primary-color-filled)' : undefined }}
     >
+      {/* Top-aligned, so a title of several lines keeps its buttons by its first line; the margins centre that line, and the box, on the face (26px). */}
       <Group gap={6} wrap='nowrap' align='flex-start'>
-        {onSelect && <Checkbox mt={3} size='xs' checked={selected ?? false} onChange={(event) => onSelect(event.currentTarget.checked)} aria-label={`Pick ${item.title}`} />}
+        {onSelect && <Checkbox mt={5} size='xs' checked={selected ?? false} onChange={(event) => onSelect(event.currentTarget.checked)} aria-label={`Pick ${item.title}`} />}
         <Text
           size='sm'
           fw={500}
@@ -280,11 +281,12 @@ function TodoCard({ item, members, expanded, onExpand, highlighted, onChanged, d
           td={item.done ? 'line-through' : undefined}
           c={item.done ? 'dimmed' : undefined}
           title={item.done && (item.doneBy || item.doneAt) ? doneLabel(item, members) : undefined}
+          mt={2}
           style={{ flex: 1, minWidth: 0 }}
         >
           {item.title}
         </Text>
-        <Group gap={2} wrap='nowrap' style={{ flex: 'none' }}>
+        <Group gap={2} wrap='nowrap' align='center' style={{ flex: 'none' }}>
           {tools && (
             <Tooltip label='Change'>
               <ActionIcon variant='subtle' color='gray' size='sm' aria-label={`Change ${item.title}`} onClick={edit}>
