@@ -542,12 +542,13 @@ function usePanelTarget(lifted: boolean): { over: string | null; overRef: { curr
 /**
  * On a phone, while a card is lifted, a panel at the foot of the screen with a target for every
  * column, by name: a card let go over one goes to the end of that column, with no dragging down the
- * stacked board. `over` is the one under the pointer, lit; a `disabled` one is faded and takes none.
+ * stacked board. The targets fill it two to a row, edge to edge with a line between, one alone on
+ * the last row taking all of it. `over` is the one under the pointer, lit; a `disabled` one is faded
+ * and takes none.
  */
 function DropPanel({ targets, over }: { targets: PanelTarget[]; over: string | null }) {
   return (
     <Box
-      p='sm'
       style={{
         position: 'fixed',
         insetInline: 0,
@@ -555,27 +556,30 @@ function DropPanel({ targets, over }: { targets: PanelTarget[]; over: string | n
         zIndex: 300,
         display: 'grid',
         gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
-        gap: 8,
-        background: 'var(--mrx-surface-chrome)',
+        // The gap shows the ground through as the lines between the targets.
+        gap: 1,
+        background: 'var(--mantine-color-default-border)',
         borderTop: COLUMN_RULE,
         boxShadow: 'var(--mantine-shadow-lg)',
       }}
     >
-      {targets.map((target) => (
+      {targets.map((target, index) => (
         <Box
           key={target.id}
           data-panel-target={target.id}
           data-disabled={target.disabled || undefined}
-          p='md'
+          px='md'
           style={{
-            border: `2px dashed ${over === target.id ? 'var(--mantine-primary-color-filled)' : 'var(--mantine-color-default-border)'}`,
-            borderRadius: 'var(--mantine-radius-md)',
-            background: over === target.id ? 'var(--mantine-primary-color-light)' : 'var(--mrx-surface-raised)',
+            gridColumn: index === targets.length - 1 && targets.length % 2 === 1 ? '1 / -1' : undefined,
+            minHeight: 72,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            background: over === target.id ? 'var(--mantine-primary-color-filled)' : 'var(--mrx-surface-chrome)',
             opacity: target.disabled ? .4 : 1,
-            textAlign: 'center',
           }}
         >
-          <Text size='sm' fw={600} truncate>{target.title}</Text>
+          <Text size='md' fw={600} truncate c={over === target.id ? 'white' : undefined}>{target.title}</Text>
         </Box>
       ))}
     </Box>
