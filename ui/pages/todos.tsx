@@ -651,14 +651,15 @@ const doneLabel = (item: TodoItem, members: TodoMember[]): string => {
 
 /**
  * The board: all of the page under the bar, on the page's own ground as the open tab is, its columns side by side sharing its width and filling
- * its height, sideways when they do not fit; on a phone stacked, the board scrolling down as one.
+ * its height, sideways when they do not fit; on a phone stacked, the board scrolling down as one,
+ * leaving `footRoom` under its end for what floats at the screen's foot.
  */
-function BoardScroller({ children }: { children: ReactNode }) {
+function BoardScroller({ footRoom = 0, children }: { footRoom?: number; children: ReactNode }) {
   const phone = usePhone();
   return (
     <Box
       h='100%'
-      style={phone ? { overflowY: 'auto' } : { display: 'flex', alignItems: 'stretch', overflowX: 'auto', overflowY: 'hidden' }}
+      style={phone ? { overflowY: 'auto', paddingBottom: footRoom } : { display: 'flex', alignItems: 'stretch', overflowX: 'auto', overflowY: 'hidden' }}
     >
       {children}
     </Box>
@@ -922,7 +923,7 @@ const splitTyped = (text: string): { title: string; description: string } => {
   return { title: first === -1 ? '' : lines[first].trim(), description: rest.join('\n') };
 };
 
-/** The room a phone's add line takes at the foot of the screen, which the list leaves under its last row. */
+/** The room a phone's add line takes at the foot of the screen, which the list leaves under its last row (`BoardScroller`). */
 const PHONE_ADD_ROOM = 72;
 
 /**
@@ -986,23 +987,20 @@ function AddCard({ list, onAdded }: { list: string; onAdded: () => void }) {
   );
   if (!phone) return form;
   return (
-    <>
-      <Box h={PHONE_ADD_ROOM} />
-      <Box
-        style={{
-          position: 'fixed',
-          left: 'var(--app-shell-navbar-offset, 0px)',
-          right: 0,
-          bottom: 0,
-          zIndex: 'calc(var(--mantine-z-index-app) - 1)',
-          padding: '10px 12px calc(10px + env(safe-area-inset-bottom, 0px))',
-          background: 'var(--mrx-surface-chrome)',
-          borderTop: COLUMN_RULE,
-        }}
-      >
-        {form}
-      </Box>
-    </>
+    <Box
+      style={{
+        position: 'fixed',
+        left: 'var(--app-shell-navbar-offset, 0px)',
+        right: 0,
+        bottom: 0,
+        zIndex: 'calc(var(--mantine-z-index-app) - 1)',
+        padding: '10px 12px calc(10px + env(safe-area-inset-bottom, 0px))',
+        background: 'var(--mrx-surface-chrome)',
+        borderTop: COLUMN_RULE,
+      }}
+    >
+      {form}
+    </Box>
   );
 }
 
@@ -1172,7 +1170,7 @@ function ListBoard({ path, highlight }: { path: string; highlight: string | null
       onDragEnd={(result) => void drop(result)}
     >
       {lifted && <DropPanel targets={columns.map((column) => ({ id: column.path, title: column.title }))} over={overPanel} />}
-      <BoardScroller>
+      <BoardScroller footRoom={PHONE_ADD_ROOM}>
         {columns.map((column, index) => {
           const cards = cardsOf(column);
           return (
