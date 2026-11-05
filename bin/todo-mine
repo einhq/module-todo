@@ -8,9 +8,8 @@ const todoMine = async (cmd: Command): CmdReturn => {
   try {
     const me = cmd.env.USER ?? '';
     const mine: TodoMine[] = [];
-    for (const { list, items } of await allLists(cmd)) {
-      for (const item of items) {
-        if (item.done) continue;
+    for (const { list, open } of await allLists(cmd, true)) {
+      for (const item of open) {
         if (item.assignee === me || (!list.group && !item.assignee)) {
           mine.push({ ...item, listTitle: list.title, ...(list.group ? { group: list.group } : {}) });
         }

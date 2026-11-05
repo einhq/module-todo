@@ -1,18 +1,16 @@
 #!ts
-/** todo-done — mark an item done, saying who and when, or with --undo not done again. */
+/** todo-done — mark an item done, saying who and when, and move it to its list's done/; with --undo back again. */
 import type { CmdReturn, Command } from '@ein/client';
 import { collectUnknownFlags, parseArgs, reportUnknownFlags } from '@ein/client';
 import type { TodoItem } from '@todo/api';
-import { fail, itemLine, readItem, updateItem } from '@todo/store';
+import { fail, itemLine, markDone } from '@todo/store';
 
 const todoDone = async (cmd: Command): CmdReturn => {
   const unknown: string[] = [];
   const flags = parseArgs(cmd.args, { boolean: ['undo'], unknown: collectUnknownFlags(unknown) });
   if (await reportUnknownFlags(cmd, unknown)) return 1;
   try {
-    const item = await readItem(cmd, flags._[0] === undefined ? undefined : String(flags._[0]));
-    const attrs = flags.undo ? { done: false, doneAt: null, doneBy: null } : { done: true, doneAt: new Date().toISOString(), doneBy: cmd.env.USER ?? String(cmd.access.uid) };
-    const changed = await updateItem(cmd, item.path, attrs);
+    const changed = await markDone(cmd, flags._[0] === undefined ? '' : String(flags._[0]), flags.undo);
     if (cmd.json) await cmd.writeJSON(changed satisfies TodoItem);
     else await cmd.writeLn(itemLine(changed));
     return 0;
@@ -24,11 +22,11 @@ const todoDone = async (cmd: Command): CmdReturn => {
 todoDone.spec = {
   name: 'todo-done',
   effect: 'write' as const,
-  description: 'Mark a todo item done, with who did it and when, or with --undo not done again',
+  description: "Mark a todo item done, with who did it and when, moving it to the list's done/; with --undo, not done again and back in the list",
   args: [{ name: 'item', type: 'path' as const, description: 'the item, by its path' }],
   flags: [{ name: 'undo', type: 'bool' as const, description: 'mark it not done' }],
-  examples: ['todo-done /groups/users/todos/shopping/01JB...'],
-  returns: 'The item as it is now, with doneAt and doneBy when it is done.',
+  examples: ['todo-done /groups/users/todos/Shopping/2026-11-05-140322.md', 'todo-done --undo /groups/users/todos/Shopping/done/2026-11-05-140322.md'],
+  returns: 'The item as it is now, at its new path, with doneAt and doneBy when it is done.',
 };
 
 export default todoDone;

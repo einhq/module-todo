@@ -22,7 +22,7 @@ const todoListCreate = async (cmd: Command): CmdReturn => {
 todoListCreate.spec = {
   name: 'todo-list-create',
   effect: 'write' as const,
-  description: "Make a todo list: your own, in ~/todos, or with --group one every member of the group shares, in the group's shared home",
+  description: "Make a todo list, a folder named by its title: your own, in ~/todos, or with --group one every member of the group shares, in the group's shared home",
   args: [{ name: 'title', type: 'string' as const, description: 'what the list is called, such as Shopping' }],
   flags: [{ name: 'group', type: 'group' as const, description: 'a group of yours with a shared home, whose members share the list' }],
   examples: ['todo-list-create Shopping --group users', "todo-list-create 'Before the trip'"],

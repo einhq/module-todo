@@ -1,29 +1,46 @@
 /**
  * Where todo lists live and how they are read and written.
  *
- * A list is a `todo-list` node holding its items, `todo` nodes named by when they were added. A
- * reader's own lists are in `~/todos`, which only they may enter; a group's are in `todos/` of the
- * group's shared home, `/groups/<group>/todos`, which every member may read and write and nobody
- * else sees. So who may see and change a list is the tree's own access, and nothing here checks
- * it: every read and write is made with the caller's access.
+ * A list is a directory in `todos/` of a home: a reader's own in `~/todos`, which only they may
+ * enter, a group's in `/groups/<group>/todos`, which every member may read and write and nobody
+ * else sees. Its name is its title. An item is a markdown file in the list: YAML front matter for
+ * `due`, `assignee`, `done` and `done-by`, the first `# heading` its title and the rest its notes.
+ * The file is named for when it was added unless someone names it otherwise; the order of the
+ * items is their birthtime. A done item is in the list's `done/`, whether or not its front matter
+ * says when, so `ls` of a list is what is left on it. Who may see and change a list is the tree's
+ * own access, and nothing here checks it: every read and write is made with the caller's access.
  */
 import { basename, dirname, resolve } from '@std/path';
-import { monotonicUlid } from '@std/ulid';
-import { accessOfUser, ADMIN_ACCESS, type Command, type NodeChildEntry, NodeNotFoundError, type UserAttrs } from '@ein/client';
+import { parse as parseYaml, stringify as stringifyYaml } from '@std/yaml';
+import {
+  accessOfUser,
+  ADMIN_ACCESS,
+  type Command,
+  NodeAlreadyExistsError,
+  type NodeAttrs,
+  type NodeChildEntry,
+  NodeNotFoundError,
+  SYSTEM_TIME_ZONE,
+  type UserAttrs,
+} from '@ein/client';
 import { GROUP_HOMES_PATH, groupHomePath, USERS_PATH } from '@ein/paths';
 import type { TodoItem, TodoList, TodoMember } from './api.ts';
-
-const LIST_TYPE = 'todo-list';
-const ITEM_TYPE = 'todo';
 
 /** The folder of lists in a home, a person's or a group's. */
 const TODOS_DIR = 'todos';
 
+/** The folder in a list that its done items are moved to. */
+const DONE_DIR = 'done';
+
+const ITEM_MIMETYPE = 'text/markdown';
+
 /** A reader's own lists: closed to everyone else, so neither they nor search see them. */
 const PERSONAL_MODE = 0o700;
 
-type ListAttrs = { title?: string };
-type ItemAttrs = { title?: string; done?: boolean; doneAt?: string; doneBy?: string; due?: string; assignee?: string };
+type FileAttrs = { mimetype?: string };
+
+/** An item file as read: its front matter, and the markdown after it. */
+type ItemDoc = { meta: Record<string, unknown>; body: string };
 
 /** A `todo` command's failure, said to the caller as it is. */
 export class TodoError extends Error {}
@@ -42,6 +59,12 @@ const groupOf = (path: string): string | undefined => {
   return path.startsWith(prefix) ? path.slice(prefix.length).split('/')[0] || undefined : undefined;
 };
 
+/** Whether `path` is a folder of lists: the caller's `~/todos`, or a group's. */
+const isRoot = (cmd: Command, path: string): boolean => {
+  const group = groupOf(path);
+  return group ? path === groupRoot(group) : cmd.env.HOME !== undefined && path === `${cmd.env.HOME}/${TODOS_DIR}`;
+};
+
 /** A real calendar day as `YYYY-MM-DD`. */
 export const isDay = (value: string): boolean => {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
@@ -50,15 +73,12 @@ export const isDay = (value: string): boolean => {
 };
 
 /** `value` as a due day, or a `TodoError` saying what a due day is. */
-export const dueDay = (value: string): string => {
+const dueDay = (value: string): string => {
   if (!isDay(value)) throw new TodoError(`--due must be a day as YYYY-MM-DD, got '${value}'`);
   return value;
 };
 
-/** The name a list of this title is made under: lower case, dashes, never empty. */
-const slugOf = (title: string): string => title.toLowerCase().normalize('NFKD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60) || 'list';
-
-const children = async <T extends ListAttrs | ItemAttrs>(cmd: Command, path: string): Promise<NodeChildEntry<T>[]> => {
+const children = async <T extends NodeAttrs = NodeAttrs>(cmd: Command, path: string): Promise<NodeChildEntry<T>[]> => {
   try {
     return await cmd.sys.vfs.children<T>(cmd.access, path);
   } catch (error) {
@@ -67,86 +87,176 @@ const children = async <T extends ListAttrs | ItemAttrs>(cmd: Command, path: str
   }
 };
 
-const itemOf = (list: string, entry: NodeChildEntry<ItemAttrs>): TodoItem => {
-  const attrs = entry.node.attrs;
+/** Whether a child of a list is one of its items: a text file, or one named `.md`. */
+const isItem = (entry: NodeChildEntry<FileAttrs>): boolean =>
+  entry.node.type === 'file' && (entry.name.endsWith('.md') || (entry.node.attrs.mimetype ?? '').startsWith('text/'));
+
+/** Items in the order they were added: by birthtime, then by name. */
+const byAdded = (a: NodeChildEntry<FileAttrs>, b: NodeChildEntry<FileAttrs>): number =>
+  (a.node.props.birthtime?.timestamp ?? 0) - (b.node.props.birthtime?.timestamp ?? 0) || (a.name < b.name ? -1 : a.name > b.name ? 1 : 0);
+
+// --- The file -----------------------------------------------------------------------------------
+
+const FRONT_MATTER = /^---[ \t]*\r?\n(?:([\s\S]*?)\r?\n)?---[ \t]*(?:\r?\n|$)/;
+const HEADING = /^#[ \t]+(.*?)[ \t#]*$/m;
+
+/** An item's text as front matter and body; front matter that is not a YAML mapping counts as none. */
+const parseItem = (text: string): ItemDoc => {
+  const match = FRONT_MATTER.exec(text);
+  if (!match) return { meta: {}, body: text };
+  let meta: unknown;
+  try {
+    meta = match[1] ? parseYaml(match[1]) : {};
+  } catch {
+    meta = {};
+  }
+  return { meta: meta && typeof meta === 'object' && !Array.isArray(meta) ? meta as Record<string, unknown> : {}, body: text.slice(match[0].length) };
+};
+
+/** The front matter's keys the module writes, in the order it writes them. */
+const KNOWN_KEYS = ['due', 'assignee', 'done', 'done-by'];
+
+/** An item's text from its front matter and body: the known keys first, then whatever else it had. */
+const renderItem = ({ meta, body }: ItemDoc): string => {
+  const lines: string[] = [];
+  // A day and a timestamp are written bare, as YAML reads them back: as dates, which `itemOf` takes.
+  if (meta.due !== undefined) lines.push(`due: ${dayOf(meta.due) ?? JSON.stringify(String(meta.due))}`);
+  if (meta.assignee !== undefined) lines.push(stringifyYaml({ assignee: meta.assignee }).trimEnd());
+  if (meta.done !== undefined) lines.push(`done: ${timeOf(meta.done) ?? JSON.stringify(String(meta.done))}`);
+  if (meta['done-by'] !== undefined) lines.push(stringifyYaml({ 'done-by': meta['done-by'] }).trimEnd());
+  const rest = Object.fromEntries(Object.entries(meta).filter(([key, value]) => !KNOWN_KEYS.includes(key) && value !== undefined));
+  if (Object.keys(rest).length > 0) lines.push(stringifyYaml(rest).trimEnd());
+  const text = body.replace(/^\s*\n/, '').replace(/\s*$/, '\n');
+  return lines.length > 0 ? `---\n${lines.join('\n')}\n---\n${text}` : text;
+};
+
+/** The body with its title as the first heading, the one there replaced or a new one put first. */
+const withTitle = (body: string, title: string): string => HEADING.test(body) ? body.replace(HEADING, () => `# ${title}`) : `# ${title}\n\n${body.replace(/^\s+/, '')}`;
+
+/** The body with `notes` after its heading in place of what was there. */
+const withNotes = (title: string, notes: string): string => `# ${title}\n${notes.trim() ? `\n${notes.trim()}\n` : ''}`;
+
+const dayOf = (value: unknown): string | undefined => {
+  if (value instanceof Date && !Number.isNaN(value.getTime())) return value.toISOString().slice(0, 10);
+  return typeof value === 'string' && isDay(value) ? value : undefined;
+};
+
+const timeOf = (value: unknown): string | undefined => {
+  if (value instanceof Date && !Number.isNaN(value.getTime())) return value.toISOString();
+  if (typeof value === 'string' && !Number.isNaN(Date.parse(value))) return value;
+  return undefined;
+};
+
+const textOf = (value: unknown): string | undefined => typeof value === 'string' || typeof value === 'number' ? String(value) : undefined;
+
+/** A file's name without its extension, for an item with no heading. */
+const stem = (name: string): string => name.replace(/\.[^.]+$/, '') || name;
+
+const itemOf = (list: string, path: string, doc: ItemDoc, done: boolean): TodoItem => {
+  const heading = HEADING.exec(doc.body);
+  const notes = (heading ? doc.body.replace(HEADING, '') : doc.body).trim();
+  const due = dayOf(doc.meta.due);
+  const assignee = textOf(doc.meta.assignee);
+  const doneAt = done ? timeOf(doc.meta.done) : undefined;
+  const doneBy = done ? textOf(doc.meta['done-by']) : undefined;
   return {
-    path: `${list}/${entry.name}`,
+    path,
     list,
-    title: attrs.title ?? entry.name,
-    done: attrs.done === true,
-    ...(attrs.doneAt ? { doneAt: attrs.doneAt } : {}),
-    ...(attrs.doneBy ? { doneBy: attrs.doneBy } : {}),
-    ...(attrs.due ? { due: attrs.due } : {}),
-    ...(attrs.assignee ? { assignee: attrs.assignee } : {}),
+    title: heading?.[1].trim() || stem(basename(path)),
+    ...(notes ? { notes } : {}),
+    done,
+    ...(doneAt ? { doneAt } : {}),
+    ...(doneBy ? { doneBy } : {}),
+    ...(due ? { due } : {}),
+    ...(assignee ? { assignee } : {}),
   };
 };
 
-/** The items of the list at `path`, in the order they were added. */
-const itemsOf = async (cmd: Command, path: string): Promise<TodoItem[]> =>
-  (await children<ItemAttrs>(cmd, path))
-    .filter((entry) => entry.node.type === ITEM_TYPE)
-    // Names are ULIDs, so their order is the order the items were added in.
-    .sort((a, b) => a.name < b.name ? -1 : a.name > b.name ? 1 : 0)
-    .map((entry) => itemOf(path, entry));
-
-const listOf = (path: string, title: string, items: TodoItem[]): TodoList => {
-  const group = groupOf(path);
-  return { path, title, ...(group ? { group } : {}), open: items.filter((item) => !item.done).length, total: items.length };
+const readText = async (cmd: Command, path: string): Promise<string> => {
+  const handle = await cmd.sys.vfs.open(cmd.access, path, { mode: 'r' });
+  try {
+    return await new Response(handle.readable).text();
+  } finally {
+    await handle.close();
+  }
 };
 
-/** Every list the caller can see: their own, then each of their groups', by title. */
-export const allLists = async (cmd: Command): Promise<{ list: TodoList; items: TodoItem[] }[]> => {
+const writeText = async (cmd: Command, path: string, text: string): Promise<void> => {
+  const handle = await cmd.sys.vfs.open(cmd.access, path, { mode: 'w' });
+  try {
+    await handle.write(new TextEncoder().encode(text));
+  } finally {
+    await handle.close();
+  }
+};
+
+/** The items of the list at `list` among `entries`, read, in the order they were added. */
+const readItems = async (cmd: Command, list: string, dir: string, entries: NodeChildEntry<FileAttrs>[], done: boolean): Promise<TodoItem[]> =>
+  await Promise.all(
+    entries.filter(isItem).sort(byAdded).map(async (entry) => {
+      const path = `${dir}/${entry.name}`;
+      return itemOf(list, path, parseItem(await readText(cmd, path)), done);
+    }),
+  );
+
+// --- Lists --------------------------------------------------------------------------------------
+
+const listOf = (path: string, open: number, total: number): TodoList => {
+  const group = groupOf(path);
+  return { path, title: basename(path), ...(group ? { group } : {}), open, total };
+};
+
+/**
+ * Every list the caller can see, their own and then each of their groups', by title; with
+ * `withOpen`, each list's open items read too. Done items are only counted.
+ */
+export const allLists = async (cmd: Command, withOpen = false): Promise<{ list: TodoList; open: TodoItem[] }[]> => {
   // `/groups` lists only the homes of the caller's groups: the others are hidden from them.
   const groups = (await children(cmd, GROUP_HOMES_PATH)).map((entry) => entry.name).sort();
   const roots = [personalRoot(cmd), ...groups.map(groupRoot)];
-  const found: { list: TodoList; items: TodoItem[] }[] = [];
-  for (const root of roots) {
-    const lists = (await children<ListAttrs>(cmd, root)).filter((entry) => entry.node.type === LIST_TYPE);
-    for (const entry of lists.sort((a, b) => (a.node.attrs.title ?? a.name).localeCompare(b.node.attrs.title ?? b.name))) {
-      const path = `${root}/${entry.name}`;
-      const items = await itemsOf(cmd, path);
-      found.push({ list: listOf(path, entry.node.attrs.title ?? entry.name, items), items });
-    }
-  }
-  return found;
+  const listed = <T extends NodeAttrs>(settled: PromiseSettledResult<NodeChildEntry<T>[]>) => settled.status === 'fulfilled' ? settled.value : [];
+
+  const paths = (await cmd.sys.vfs.childrenMany(cmd.access, roots)).flatMap((settled, index) =>
+    listed(settled).filter((entry) => entry.node.type === 'directory').map((entry) => entry.name).sort((a, b) => a.localeCompare(b)).map((name) => `${roots[index]}/${name}`)
+  );
+  const contents = await cmd.sys.vfs.childrenMany<FileAttrs>(cmd.access, [...paths, ...paths.map((path) => `${path}/${DONE_DIR}`)]);
+  return await Promise.all(paths.map(async (path, index) => {
+    const open = listed(contents[index]).filter(isItem);
+    const done = listed(contents[paths.length + index]).filter(isItem);
+    return { list: listOf(path, open.length, open.length + done.length), open: withOpen ? await readItems(cmd, path, path, open, false) : [] };
+  }));
 };
 
-/** The list `arg` names, a path, with its items; a `TodoError` when it is not a list the caller can read. */
-export const readList = async (cmd: Command, arg: string | undefined): Promise<{ list: TodoList; items: TodoItem[] }> => {
+/** The list `arg` names, a path; a `TodoError` when it is not a list the caller can read. */
+export const listAt = async (cmd: Command, arg: string | undefined): Promise<string> => {
   if (!arg) throw new TodoError('missing list');
   const path = resolve(cmd.cwd, arg);
   let node;
   try {
-    node = await cmd.sys.vfs.get<ListAttrs>(cmd.access, path);
+    node = await cmd.sys.vfs.get(cmd.access, path);
   } catch {
     throw new TodoError(`${path}: no such list`);
   }
-  if (node.type !== LIST_TYPE) throw new TodoError(`${path}: not a todo list`);
-  const items = await itemsOf(cmd, path);
-  return { list: listOf(path, node.attrs.title ?? basename(path), items), items };
+  if (node.type !== 'directory' || !isRoot(cmd, dirname(path))) throw new TodoError(`${path}: not a todo list`);
+  return path;
 };
 
-/** The item `arg` names, a path; a `TodoError` when it is not an item the caller can read. */
-export const readItem = async (cmd: Command, arg: string | undefined): Promise<TodoItem> => {
-  if (!arg) throw new TodoError('missing item');
-  const path = resolve(cmd.cwd, arg);
-  let node;
-  try {
-    node = await cmd.sys.vfs.get<ItemAttrs>(cmd.access, path);
-  } catch {
-    throw new TodoError(`${path}: no such item`);
-  }
-  if (node.type !== ITEM_TYPE) throw new TodoError(`${path}: not a todo item`);
-  return itemOf(dirname(path), { node, name: basename(path), childCount: 0 });
+/** The list `arg` names with its items, the open ones and then the done ones. */
+export const readList = async (cmd: Command, arg: string | undefined): Promise<{ list: TodoList; items: TodoItem[] }> => {
+  const path = await listAt(cmd, arg);
+  const open = await readItems(cmd, path, path, await children<FileAttrs>(cmd, path), false);
+  const done = await readItems(cmd, path, `${path}/${DONE_DIR}`, await children<FileAttrs>(cmd, `${path}/${DONE_DIR}`), true);
+  return { list: listOf(path, open.length, open.length + done.length), items: [...open, ...done] };
 };
 
 /**
- * Make a list titled `title`, the caller's own or, with `group`, in that group's shared home. The
- * name is the title's, with a number after it when that is taken.
+ * Make a list called `title`, the caller's own or, with `group`, in that group's shared home. The
+ * title is the folder's name, so a list of that title already there is refused.
  */
 export const createList = async (cmd: Command, title: string, group?: string): Promise<TodoList> => {
   const name = title.trim();
   if (!name) throw new TodoError('a list needs a title');
+  if (name.includes('/') || name === '.' || name === '..') throw new TodoError(`a list cannot be called '${name}'`);
   let root: string;
   if (group) {
     const home = groupHomePath(group);
@@ -157,12 +267,13 @@ export const createList = async (cmd: Command, title: string, group?: string): P
     root = personalRoot(cmd);
     await cmd.sys.vfs.ensure(cmd.access, 'directory', dirname(root), TODOS_DIR, { props: { mode: PERSONAL_MODE } });
   }
-  const taken = new Set((await children(cmd, root)).map((entry) => entry.name));
-  const slug = slugOf(name);
-  let candidate = slug;
-  for (let n = 2; taken.has(candidate); n++) candidate = `${slug}-${n}`;
-  await cmd.sys.vfs.create<ListAttrs>(cmd.access, LIST_TYPE, root, candidate, { attrs: { title: name } });
-  return listOf(`${root}/${candidate}`, name, []);
+  try {
+    await cmd.sys.vfs.create(cmd.access, 'directory', root, name);
+  } catch (error) {
+    if (error instanceof NodeAlreadyExistsError) throw new TodoError(`there is already a list called '${name}' in ${root}`);
+    throw error;
+  }
+  return listOf(`${root}/${name}`, 0, 0);
 };
 
 /**
@@ -188,28 +299,125 @@ export const membersOf = async (cmd: Command, path: string): Promise<TodoMember[
 };
 
 /** `username` as an assignee of an item on the list at `path`, or a `TodoError` saying why not. */
-export const assignable = async (cmd: Command, path: string, username: string): Promise<string> => {
+const assignable = async (cmd: Command, path: string, username: string): Promise<string> => {
   const members = await membersOf(cmd, path);
   if (members.some((member) => member.username === username)) return username;
   throw new TodoError(groupOf(path) ? `'${username}' is not in the group '${groupOf(path)}'` : `an item on your own list can only be yours`);
 };
 
-/** Add an item titled `title` to the list at `list`, at its end. */
+// --- Items --------------------------------------------------------------------------------------
+
+/** Where the item at `path` is: its list, and whether it is in the list's `done/`; undefined for anything else. */
+const placeOf = (cmd: Command, path: string): { list: string; done: boolean } | undefined => {
+  const parent = dirname(path);
+  if (isRoot(cmd, dirname(parent))) return { list: parent, done: false };
+  if (basename(parent) === DONE_DIR && isRoot(cmd, dirname(dirname(parent)))) return { list: dirname(parent), done: true };
+  return undefined;
+};
+
+/** The item `arg` names, a path, with its text; a `TodoError` when it is not an item the caller can read. */
+const itemAt = async (cmd: Command, arg: string | undefined): Promise<{ item: TodoItem; doc: ItemDoc }> => {
+  if (!arg) throw new TodoError('missing item');
+  const path = resolve(cmd.cwd, arg);
+  let node;
+  try {
+    node = await cmd.sys.vfs.get<FileAttrs>(cmd.access, path);
+  } catch {
+    throw new TodoError(`${path}: no such item`);
+  }
+  const place = placeOf(cmd, path);
+  if (!place || !isItem({ node, name: basename(path), childCount: 0 })) throw new TodoError(`${path}: not a todo item`);
+  const doc = parseItem(await readText(cmd, path));
+  return { item: itemOf(place.list, path, doc, place.done), doc };
+};
+
+/** The item `arg` names, a path; a `TodoError` when it is not an item the caller can read. */
+const readItem = async (cmd: Command, arg: string | undefined): Promise<TodoItem> => (await itemAt(cmd, arg)).item;
+
+/** A name in `dirs` that none of them has yet: `wanted`, or it with a number before its extension. */
+const freeName = async (cmd: Command, dirs: string[], wanted: string): Promise<string> => {
+  const taken = new Set((await Promise.all(dirs.map((dir) => children(cmd, dir)))).flat().map((entry) => entry.name));
+  const dot = wanted.lastIndexOf('.');
+  const [base, ext] = dot > 0 ? [wanted.slice(0, dot), wanted.slice(dot)] : [wanted, ''];
+  let name = wanted;
+  for (let n = 2; taken.has(name); n++) name = `${base}-${n}${ext}`;
+  return name;
+};
+
+/** Now, in the system's time zone, as a file name: `2026-11-05-140322.md`. */
+const addedName = (): string => {
+  const parts = Object.fromEntries(
+    new Intl.DateTimeFormat('en-GB', {
+      timeZone: SYSTEM_TIME_ZONE,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hourCycle: 'h23',
+    })
+      .formatToParts(new Date()).map((part) => [part.type, part.value]),
+  );
+  return `${parts.year}-${parts.month}-${parts.day}-${parts.hour}${parts.minute}${parts.second}.md`;
+};
+
+/** Add an item titled `title` to the list at `list`, named for now. */
 export const addItem = async (cmd: Command, list: string, title: string, extra: { due?: string; assignee?: string }): Promise<TodoItem> => {
   const name = title.trim();
   if (!name) throw new TodoError('an item needs a title');
-  const attrs: ItemAttrs = { title: name, done: false };
-  if (extra.due) attrs.due = dueDay(extra.due);
-  if (extra.assignee) attrs.assignee = await assignable(cmd, list, extra.assignee);
-  const id = monotonicUlid();
-  await cmd.sys.vfs.create<ItemAttrs>(cmd.access, ITEM_TYPE, list, id, { attrs });
-  return readItem(cmd, `${list}/${id}`);
+  const meta: Record<string, unknown> = {};
+  if (extra.due) meta.due = dueDay(extra.due);
+  if (extra.assignee) meta.assignee = await assignable(cmd, list, extra.assignee);
+  // The name is free in done/ too, so the item can be ticked off and back without being renamed.
+  const file = await freeName(cmd, [list, `${list}/${DONE_DIR}`], addedName());
+  await cmd.sys.vfs.create(cmd.access, 'file', list, file, { props: { tier: 'db' }, attrs: { name: file, mimetype: ITEM_MIMETYPE, size: 0 } });
+  await writeText(cmd, `${list}/${file}`, renderItem({ meta, body: `# ${name}\n` }));
+  return readItem(cmd, `${list}/${file}`);
 };
 
-/** Write `attrs` to the item at `path`; null takes an attr away. */
-export const updateItem = async (cmd: Command, path: string, attrs: Record<string, unknown>): Promise<TodoItem> => {
-  await cmd.sys.vfs.update(cmd.access, path, { attrs });
-  return readItem(cmd, path);
+/** The changes `todo-set` makes; null takes a field away. */
+export type ItemChange = { title?: string; notes?: string; due?: string | null; assignee?: string | null };
+
+/** Change the item at `arg`: its title, notes, due day or assignee, the rest of its text kept. */
+export const updateItem = async (cmd: Command, arg: string, change: ItemChange): Promise<TodoItem> => {
+  const { item, doc } = await itemAt(cmd, arg);
+  const meta = { ...doc.meta };
+  let body = doc.body;
+  if (change.title !== undefined) {
+    if (!change.title.trim()) throw new TodoError('an item needs a title');
+    body = withTitle(body, change.title.trim());
+  }
+  if (change.notes !== undefined) body = withNotes(change.title?.trim() || item.title, change.notes);
+  if (change.due === null) delete meta.due;
+  else if (change.due !== undefined) meta.due = dueDay(change.due);
+  if (change.assignee === null) delete meta.assignee;
+  else if (change.assignee !== undefined) meta.assignee = await assignable(cmd, item.list, change.assignee);
+  await writeText(cmd, item.path, renderItem({ meta, body }));
+  return readItem(cmd, item.path);
+};
+
+/**
+ * Mark the item at `arg` done, saying who and when, and move it to its list's `done/`; with
+ * `undo`, take that away and move it back. An item already where it is asked to be is left alone.
+ */
+export const markDone = async (cmd: Command, arg: string, undo: boolean): Promise<TodoItem> => {
+  const { item, doc } = await itemAt(cmd, arg);
+  if (item.done !== undo) return item;
+  const meta = { ...doc.meta };
+  if (undo) {
+    delete meta.done;
+    delete meta['done-by'];
+  } else {
+    meta.done = new Date().toISOString();
+    meta['done-by'] = cmd.env.USER ?? String(cmd.access.uid);
+  }
+  await writeText(cmd, item.path, renderItem({ ...doc, meta }));
+  const to = undo ? item.list : `${item.list}/${DONE_DIR}`;
+  if (!undo) await cmd.sys.vfs.ensure(cmd.access, 'directory', item.list, DONE_DIR);
+  const name = await freeName(cmd, [to], basename(item.path));
+  await cmd.sys.vfs.rename(cmd.access, dirname(item.path), basename(item.path), to, name, { failIfExists: true });
+  return readItem(cmd, `${to}/${name}`);
 };
 
 /** Say `error` on stderr as `name`'s failure, and answer the exit code for it. */

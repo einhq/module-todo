@@ -1,9 +1,9 @@
 #!ts
-/** todo-add — an item at the end of a todo list. */
+/** todo-add — an item on a todo list, a markdown file named for when it was added. */
 import type { CmdReturn, Command } from '@ein/client';
 import { collectUnknownFlags, parseArgs, reportUnknownFlags } from '@ein/client';
 import type { TodoItem } from '@todo/api';
-import { addItem, fail, itemLine, readList } from '@todo/store';
+import { addItem, fail, itemLine, listAt } from '@todo/store';
 
 const todoAdd = async (cmd: Command): CmdReturn => {
   const unknown: string[] = [];
@@ -11,8 +11,7 @@ const todoAdd = async (cmd: Command): CmdReturn => {
   if (await reportUnknownFlags(cmd, unknown)) return 1;
   const [list, ...words] = flags._.map(String);
   try {
-    const { list: found } = await readList(cmd, list);
-    const item = await addItem(cmd, found.path, words.join(' '), { due: flags.due || undefined, assignee: flags.assignee || undefined });
+    const item = await addItem(cmd, await listAt(cmd, list), words.join(' '), { due: flags.due || undefined, assignee: flags.assignee || undefined });
     if (cmd.json) await cmd.writeJSON(item satisfies TodoItem);
     else await cmd.writeLn(itemLine(item));
     return 0;
@@ -24,7 +23,7 @@ const todoAdd = async (cmd: Command): CmdReturn => {
 todoAdd.spec = {
   name: 'todo-add',
   effect: 'write' as const,
-  description: 'Add an item to a todo list, with the day it is due and who is to do it if you like',
+  description: 'Add an item to a todo list, a markdown file named for when it was added, with the day it is due and who is to do it if you like',
   args: [
     { name: 'list', type: 'path' as const, description: 'the list, by its path' },
     { name: 'title', type: 'string' as const, description: 'what is to be done' },
@@ -33,7 +32,7 @@ todoAdd.spec = {
     { name: 'due', type: 'string' as const, description: 'the day it is due, as YYYY-MM-DD' },
     { name: 'assignee', type: 'user' as const, description: "who is to do it: a member of the list's group, or you on a list of your own" },
   ],
-  examples: ['todo-add /groups/users/todos/shopping Milk', 'todo-add ~/todos/before-the-trip "Renew the passport" --due 2026-12-01'],
+  examples: ['todo-add /groups/users/todos/Shopping Milk', "todo-add ~/todos/'Before the trip' 'Renew the passport' --due 2026-12-01"],
   returns: 'The new item: path, list, title, done, due and assignee.',
 };
 

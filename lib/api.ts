@@ -6,6 +6,7 @@
 /** A todo list, as `todo-lists` and `todo-items` answer it. */
 export type TodoList = {
   path: string;
+  /** Its folder's name. */
   title: string;
   /** The group whose shared home holds it; absent for a list of the reader's own. */
   group?: string;
@@ -20,8 +21,11 @@ export type TodoItem = {
   /** The list it is in. */
   list: string;
   title: string;
+  /** What the file says after its title. */
+  notes?: string;
+  /** Whether it is in its list's `done/`. */
   done: boolean;
-  /** When it was marked done, as an ISO timestamp. */
+  /** When it was marked done, as an ISO timestamp, when its file says so. */
   doneAt?: string;
   /** The username of whoever marked it done. */
   doneBy?: string;
@@ -31,7 +35,7 @@ export type TodoItem = {
   assignee?: string;
 };
 
-/** `todo-items`: the list and its items, in the order they were added. */
+/** `todo-items`: the list and its items, the open ones and then the done ones, each in the order they were added. */
 export type TodoListing = { list: TodoList; items: TodoItem[] };
 
 /** `todo-mine`: an item, with the list it is in. */

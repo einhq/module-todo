@@ -1,4 +1,22 @@
-import { ActionIcon, Badge, Box, Button, Checkbox, Collapse, Group, Menu, Paper, ScrollArea, Select, Stack, Text, TextInput, Tooltip, UnstyledButton } from '@mantine/core';
+import {
+  ActionIcon,
+  Badge,
+  Box,
+  Button,
+  Checkbox,
+  Collapse,
+  Group,
+  Menu,
+  Paper,
+  ScrollArea,
+  Select,
+  Stack,
+  Text,
+  Textarea,
+  TextInput,
+  Tooltip,
+  UnstyledButton,
+} from '@mantine/core';
 import { EmptyState, ListFilterInput, PageBar, PageLoader, TablerIcon } from '@ein/ui/components';
 import { useCommand, usePhone } from '@ein/ui/hooks';
 import { shq } from '@ein/ui/lib';
@@ -24,8 +42,6 @@ const dueLabel = (due: string): string => {
   return new Date(`${due}T12:00:00`).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: due.slice(0, 4) === now.slice(0, 4) ? undefined : 'numeric' });
 };
 
-const dirname = (path: string): string => path.slice(0, path.lastIndexOf('/')) || '/';
-
 /** Run a command, saying on failure what went wrong; answers whether it ran. */
 const run = async (command: string): Promise<boolean> => {
   try {
@@ -42,14 +58,14 @@ const BAR_BUTTON = { size: 36, icon: 22 };
 
 /**
  * `/todos`: the reader's todo lists in a pane beside the one open, `?list=<path>`, or, with no
- * list, what is left for them to do on any list (`todo-mine`). `?item=<path>` opens the item's
- * list. Laid out as the chat page is: the page's bar with its buttons, the lists in a bordered box
+ * list, what is left for them to do on any list (`todo-mine`). `?item=<path>` marks one of the
+ * list's items. Laid out as the chat page is: the page's bar with its buttons, the lists in a bordered box
  * in the page's margin, and on a phone, where the box does not fit, a menu of the lists in the bar.
  */
 export default function TodosPage() {
   const [params, setParams] = useSearchParams();
   const phone = usePhone();
-  const listPath = params.get('list') ?? (params.get('item') ? dirname(params.get('item')!) : null);
+  const listPath = params.get('list');
   const lists = useCommand<TodoList[]>('todo-lists');
 
   const open = (path: string | null) => setParams(path ? { list: path } : {});
@@ -183,7 +199,7 @@ function ListsMenu({ lists, current, onOpen }: { lists: TodoList[]; current: str
   );
 }
 
-/** One item: its box, title, when it is due and whose it is; the pencil opens it to change. */
+/** One item: its box, title and notes, when it is due and whose it is; the pencil opens it to change. */
 function ItemRow({ item, members, highlight, aside, onChanged }: {
   item: TodoItem;
   members: TodoMember[];
@@ -214,16 +230,13 @@ function ItemRow({ item, members, highlight, aside, onChanged }: {
       <Checkbox checked={item.done} disabled={busy} onChange={toggle} aria-label={item.done ? `Mark ${item.title} not done` : `Mark ${item.title} done`} />
       <Box style={{ flex: 1, minWidth: 0 }}>
         <Text size='sm' td={item.done ? 'line-through' : undefined} c={item.done ? 'dimmed' : undefined} truncate>{item.title}</Text>
+        {item.notes && <Text size='xs' c='dimmed' lineClamp={2} style={{ whiteSpace: 'pre-line' }}>{item.notes}</Text>}
         {aside}
       </Box>
       {item.due && <Badge size='sm' variant={overdue ? 'filled' : 'light'} color={overdue ? 'red' : 'gray'} tt='none'>{dueLabel(item.due)}</Badge>}
       {who && <Badge size='sm' variant='outline' color='gray' tt='none' leftSection={<TablerIcon name='user' size={10} />}>{who}</Badge>}
-      {item.done && item.doneBy && (
-        <Tooltip
-          label={`Done by ${members.find((member) => member.username === item.doneBy)?.name ?? item.doneBy}${
-            item.doneAt ? `, ${new Date(item.doneAt).toLocaleString()}` : ''
-          }`}
-        >
+      {item.done && (item.doneBy || item.doneAt) && (
+        <Tooltip label={doneLabel(item, members)}>
           <Box component='span' style={{ display: 'inline-flex' }}>
             <TablerIcon name='check' size={14} color='var(--mantine-color-dimmed)' />
           </Box>
@@ -236,9 +249,16 @@ function ItemRow({ item, members, highlight, aside, onChanged }: {
   );
 }
 
-/** An item opened to change: its title, due day and whose it is, saved together; or taken to the trash. */
+/** Who ticked an item off and when, as far as its file says. */
+const doneLabel = (item: TodoItem, members: TodoMember[]): string => {
+  const who = item.doneBy ? ` by ${members.find((member) => member.username === item.doneBy)?.name ?? item.doneBy}` : '';
+  return `Done${who}${item.doneAt ? `, ${new Date(item.doneAt).toLocaleString()}` : ''}`;
+};
+
+/** An item opened to change: its title, notes, due day and whose it is, saved together; or taken to the trash. */
 function ItemEditor({ item, members, onDone, onChanged }: { item: TodoItem; members: TodoMember[]; onDone: () => void; onChanged: () => void }) {
   const [title, setTitle] = useState(item.title);
+  const [notes, setNotes] = useState(item.notes ?? '');
   const [due, setDue] = useState(item.due ?? '');
   const [assignee, setAssignee] = useState<string | null>(item.assignee ?? null);
   const [busy, setBusy] = useState(false);
@@ -247,7 +267,7 @@ function ItemEditor({ item, members, onDone, onChanged }: { item: TodoItem; memb
     event.preventDefault();
     if (!title.trim()) return;
     setBusy(true);
-    const command = `todo-set ${shq(item.path)} --title ${shq(title.trim())} ${due ? `--due ${shq(due)}` : '--no-due'} ${
+    const command = `todo-set ${shq(item.path)} --title ${shq(title.trim())} --notes ${shq(notes)} ${due ? `--due ${shq(due)}` : '--no-due'} ${
       assignee ? `--assignee ${shq(assignee)}` : '--no-assignee'
     }`;
     if (await run(command)) {
@@ -271,6 +291,7 @@ function ItemEditor({ item, members, onDone, onChanged }: { item: TodoItem; memb
     <Paper withBorder p='sm' my={4} component='form' onSubmit={save}>
       <Stack gap='xs'>
         <TextInput value={title} onChange={(event) => setTitle(event.currentTarget.value)} aria-label='Title' data-autofocus autoFocus />
+        <Textarea placeholder='Notes' autosize minRows={1} maxRows={8} value={notes} onChange={(event) => setNotes(event.currentTarget.value)} aria-label='Notes' />
         <Group gap='xs' grow>
           <TextInput type='date' label='Due' value={due} onChange={(event) => setDue(event.currentTarget.value)} />
           <Select

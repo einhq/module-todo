@@ -1,5 +1,5 @@
 #!ts
-/** todo-lists — every todo list the reader can see: their own, then each of their groups'. */
+/** todo-lists — every todo list the reader can see: their own, then each of their groups', with how much is left on each. */
 import type { CmdReturn, Command } from '@ein/client';
 import type { TodoList } from '@todo/api';
 import { allLists, fail } from '@todo/store';
