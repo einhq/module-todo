@@ -1,0 +1,14 @@
+# The todo commands the assistant offers its model as tools, one a line. Each is described by its
+# own --help; one that writes becomes a proposal the user runs.
+todo-lists
+todo-items
+todo-item
+todo-mine
+todo-members
+todo-list-create
+todo-add
+todo-set
+todo-done
+todo-move
+todo-archive
+todo-link

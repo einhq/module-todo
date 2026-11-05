@@ -1,0 +1,91 @@
+{
+  "note": "Questions for agent-eval, each asked once as the account running it (or --user), with `context` as what the app shows. `commands` are those that do the job: reaching any of them counts, and none means the question is answered without one. `resolvers` turn a name into a path, so calling one first is not a wrong first choice.",
+  "resolvers": [
+    "todo-lists"
+  ],
+  "questions": [
+    {
+      "id": "todo-whats-on-a-list",
+      "bucket": "todo",
+      "lang": "en",
+      "ask": "What's on my shopping list?",
+      "commands": [
+        "todo-items"
+      ]
+    },
+    {
+      "id": "todo-which-lists",
+      "bucket": "todo",
+      "lang": "sv",
+      "ask": "Vilka att göra-listor har jag?",
+      "commands": [
+        "todo-lists"
+      ]
+    },
+    {
+      "id": "todo-mine",
+      "bucket": "todo",
+      "lang": "sv",
+      "ask": "Vad har jag kvar att göra?",
+      "commands": [
+        "todo-mine"
+      ]
+    },
+    {
+      "id": "todo-list-on-screen",
+      "bucket": "todo",
+      "lang": "en",
+      "ask": "What is left on this list?",
+      "context": {
+        "route": "/todos?list=%2Fgroups%2Fusers%2Ftodos%2FShopping",
+        "section": "Todo",
+        "title": "Todo"
+      },
+      "commands": [
+        "todo-items"
+      ]
+    },
+    {
+      "id": "todo-add-to-list-on-screen",
+      "bucket": "write",
+      "lang": "en",
+      "ask": "Add milk to it",
+      "context": {
+        "route": "/todos?list=%2Fgroups%2Fusers%2Ftodos%2FShopping",
+        "section": "Todo",
+        "title": "Todo"
+      },
+      "commands": [
+        "todo-add"
+      ]
+    },
+    {
+      "id": "todo-add-named-list",
+      "bucket": "write",
+      "lang": "sv",
+      "ask": "Lägg till mjölk och bröd på inköpslistan",
+      "commands": [
+        "todo-add"
+      ]
+    },
+    {
+      "id": "todo-add-due",
+      "bucket": "write",
+      "lang": "sv",
+      "ask": "Påminn mig om att förnya passet senast 1 december",
+      "commands": [
+        "todo-add"
+      ]
+    },
+    {
+      "id": "todo-done",
+      "bucket": "write",
+      "lang": "en",
+      "ask": "I've bought the milk, tick it off the shopping list",
+      "commands": [
+        "todo-done",
+        "todo-move"
+      ]
+    }
+  ]
+}
