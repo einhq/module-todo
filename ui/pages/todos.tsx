@@ -439,10 +439,10 @@ const AGE_SPAN = 28;
  * lighter shade of the same hue.
  */
 const ageColor = (item: TodoItem): { ground: string; tiles: string } => {
-  if (item.done || !item.added) return { ground: 'hsl(220 8% 17%)', tiles: 'hsl(220 8% 42%)' };
+  if (item.done || !item.added) return { ground: 'hsl(220 8% 16%)', tiles: 'hsl(220 8% 30%)' };
   const days = Math.max(0, (Date.now() - Date.parse(item.added)) / 86_400_000);
   const hue = Math.round(130 * (1 - Math.min(1, days / AGE_SPAN)));
-  return { ground: `hsl(${hue} 45% 15%)`, tiles: `hsl(${hue} 55% 42%)` };
+  return { ground: `hsl(${hue} 35% 14%)`, tiles: `hsl(${hue} 40% 30%)` };
 };
 
 /** When a card was added, in words, for its band's hover. */
