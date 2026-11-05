@@ -14,7 +14,18 @@ import { useCommand, usePhone } from '@ein/ui/hooks';
 import { plainMarkdown, shq } from '@ein/ui/lib';
 import { execCommand, loadUserConfig, notify, onOutsideEdit, openDialog, userConfigFlag } from '@ein/ui/signals';
 import { useSignals } from '@preact/signals-react/runtime';
-import { type CSSProperties, type FocusEvent, type FormEvent, type KeyboardEvent, type MouseEvent, type ReactNode, useEffect, useRef, useState } from 'react';
+import {
+  type CSSProperties,
+  type FocusEvent,
+  type FormEvent,
+  type KeyboardEvent,
+  type MouseEvent,
+  type PointerEvent,
+  type ReactNode,
+  useEffect,
+  useRef,
+  useState,
+} from 'react';
 import { useSearchParams } from 'react-router-dom';
 import type { TodoColumn, TodoItem, TodoList, TodoListing, TodoMember, TodoMine } from '../../lib/api.ts';
 import { Face } from '../components/Face.tsx';
@@ -272,6 +283,22 @@ function AssigneeButton({ item, members, onChanged }: { item: TodoItem; members:
   );
 }
 
+/** How long a row is held still to open it, in ms; a shorter hold lifts it to move. */
+const LONG_PRESS = 500;
+
+/** How far a held finger may wander and still be holding still, in px. */
+const STILL = 10;
+
+/**
+ * The press on a phone's row: when and where it began, whether it has moved, and when it was let go.
+ * A row held still for `LONG_PRESS` opens the item; the drag that the hold began, which lifts the
+ * row, then moves nothing (`heldStill`).
+ */
+let rowPress: { at: number; x: number; y: number; moved: boolean; released?: number } | null = null;
+
+/** Whether the last press on a row was a long one held still, which opens the item rather than moving it. */
+const heldStill = (): boolean => rowPress !== null && !rowPress.moved && (rowPress.released ?? Date.now()) - rowPress.at >= LONG_PRESS;
+
 /** What a card or a row is given. */
 type CardProps = {
   item: TodoItem;
@@ -434,9 +461,10 @@ function BoardCard({ item, members, expanded, onExpand, highlighted, onChanged, 
 /**
  * One item as a row of a list, as a phone shows a board: a box that ticks it off, moving it to Done,
  * and unticked moves it back; a spinner while it is in a started column (neither Todo nor Done); its
- * title; at the right its due day, whoever is to do it, the pencil, and a chevron that unfolds its
- * description when it has one; under the title what it links to, as their covers alone. The row is
- * what is lifted to move it. A line parts it from the next.
+ * title, and after it a chevron that unfolds its description when it has one; at the right its due
+ * day and whoever is to do it; under the title what it links to, as their covers alone. Held still
+ * for `LONG_PRESS` it opens the item's dialog; a shorter hold lifts it to move. A line parts it from
+ * the next.
  */
 function TodoRow({ item, members, expanded, onExpand, highlighted, onChanged, stage, dragHandle, dragging, prefix, onPrefix }: CardProps) {
   const ref = useRef<HTMLDivElement>(null);
@@ -456,7 +484,19 @@ function TodoRow({ item, members, expanded, onExpand, highlighted, onChanged, st
     if (await run(`todo-done ${done ? '' : '--undo '}${shq(item.path)}`)) onChanged();
     setBusy(false);
   };
-  const edit = () => openDialog(`/todos/item?path=${encodeURIComponent(item.path)}`);
+
+  // A press on the row itself, not on one of its controls, may be the long one that opens it.
+  const onPointerDown = (event: PointerEvent<HTMLDivElement>) => {
+    rowPress = (event.target as HTMLElement).closest('button, input, a, [role=button]') ? null : { at: Date.now(), x: event.clientX, y: event.clientY, moved: false };
+  };
+  const onPointerMove = (event: PointerEvent<HTMLDivElement>) => {
+    if (rowPress && Math.hypot(event.clientX - rowPress.x, event.clientY - rowPress.y) > STILL) rowPress.moved = true;
+  };
+  const onPointerUp = () => {
+    if (!rowPress) return;
+    rowPress.released = Date.now();
+    if (heldStill()) openDialog(`/todos/item?path=${encodeURIComponent(item.path)}`);
+  };
 
   return (
     <Box
@@ -465,8 +505,19 @@ function TodoRow({ item, members, expanded, onExpand, highlighted, onChanged, st
       px='sm'
       py={10}
       title={item.done && (item.doneBy || item.doneAt) ? doneLabel(item, members) : undefined}
+      onPointerDown={onPointerDown}
+      onPointerMove={onPointerMove}
+      onPointerUp={onPointerUp}
+      onPointerCancel={() => {
+        if (rowPress) rowPress.moved = true;
+      }}
+      // The phone's own long press would select the title or bring up a menu.
+      onContextMenu={(event: MouseEvent<HTMLDivElement>) => event.preventDefault()}
       style={{
         borderBottom: COLUMN_RULE,
+        userSelect: 'none',
+        WebkitUserSelect: 'none',
+        WebkitTouchCallout: 'none',
         background: dragging ? 'var(--mrx-surface-raised)' : highlighted ? 'color-mix(in srgb, var(--mantine-primary-color-filled) 14%, transparent)' : undefined,
         boxShadow: dragging ? 'var(--mantine-shadow-md)' : highlighted ? 'inset 3px 0 0 var(--mantine-primary-color-filled)' : undefined,
       }}
@@ -484,7 +535,7 @@ function TodoRow({ item, members, expanded, onExpand, highlighted, onChanged, st
         <Box style={{ flex: 1, minWidth: 0 }}>
           <Group gap={6} wrap='nowrap' align='flex-start'>
             {stage === 'doing' && !item.done && <Loader type='oval' size={14} mt={5} style={{ flex: 'none' }} aria-label='Ongoing' />}
-            <Text size='md' lineClamp={3} td={item.done ? 'line-through' : undefined} c={item.done ? 'dimmed' : undefined} style={{ flex: 1, minWidth: 0 }}>
+            <Text size='md' lineClamp={3} td={item.done ? 'line-through' : undefined} c={item.done ? 'dimmed' : undefined} style={{ flex: '0 1 auto', minWidth: 0 }}>
               {prefix && (
                 <Text
                   span
@@ -500,6 +551,20 @@ function TodoRow({ item, members, expanded, onExpand, highlighted, onChanged, st
               )}
               {item.title}
             </Text>
+            {item.description && (
+              <ActionIcon
+                variant='subtle'
+                color='gray'
+                size='sm'
+                mt={1}
+                style={{ flex: 'none' }}
+                aria-label={expanded ? 'Fold the description' : 'Show the description'}
+                aria-expanded={expanded}
+                onClick={() => onExpand(!expanded)}
+              >
+                <TablerIcon name='chevron-down' size={16} style={{ transform: expanded ? 'rotate(180deg)' : undefined, transition: 'transform 120ms ease' }} />
+              </ActionIcon>
+            )}
           </Group>
           {item.description && expanded && (
             <Box fz='sm' mt={4}>
@@ -515,21 +580,6 @@ function TodoRow({ item, members, expanded, onExpand, highlighted, onChanged, st
         <Group gap={2} wrap='nowrap' align='center' style={{ flex: 'none' }}>
           <DueControl value={item.due ?? ''} overdue={overdue} onChange={(day) => void setDue(day)} opened={dueOpen} onOpened={setDueOpen} />
           <AssigneeButton item={item} members={members} onChanged={onChanged} />
-          <ActionIcon variant='subtle' color='gray' size='md' aria-label={`Change ${item.title}`} onClick={edit}>
-            <TablerIcon name='pencil' size={16} />
-          </ActionIcon>
-          {item.description && (
-            <ActionIcon
-              variant='subtle'
-              color='gray'
-              size='md'
-              aria-label={expanded ? 'Fold the description' : 'Show the description'}
-              aria-expanded={expanded}
-              onClick={() => onExpand(!expanded)}
-            >
-              <TablerIcon name='chevron-down' size={16} style={{ transform: expanded ? 'rotate(180deg)' : undefined, transition: 'transform 120ms ease' }} />
-            </ActionIcon>
-          )}
         </Group>
       </Group>
     </Box>
@@ -624,7 +674,8 @@ const COLUMN_RULE = '1px solid var(--mantine-color-default-border)';
  * under it short of the column's edges, its cards, and a `footer` under them. It is ruled off from
  * the column before it (`index`). Side by side the columns share the board's width, none narrower
  * than 260px and none wider for what is in it (a card dropped in leaves every column as wide as it
- * was); stacked on a phone each is as tall as its cards.
+ * was). On a phone a column is no frame: its rows and footer alone, the columns one list, which the
+ * rows' boxes and spinners say the stage of.
  */
 function ColumnFrame({ index, title, count, edit, editing, controls, footer, children }: {
   index: number;
@@ -638,10 +689,17 @@ function ColumnFrame({ index, title, count, edit, editing, controls, footer, chi
 }) {
   const phone = usePhone();
   const [hovered, setHovered] = useState(false);
-  const rule = index === 0 ? {} : phone ? { borderTop: COLUMN_RULE } : { borderLeft: COLUMN_RULE };
-  const editShown = phone || hovered || editing;
+  const editShown = hovered || editing;
+  if (phone) {
+    return (
+      <>
+        {children}
+        {footer}
+      </>
+    );
+  }
   return (
-    <Box style={{ display: 'flex', flexDirection: 'column', minHeight: 0, ...rule, ...(phone ? {} : { flex: '1 0 260px', minWidth: 0 }) }}>
+    <Box style={{ display: 'flex', flexDirection: 'column', minHeight: 0, flex: '1 0 260px', minWidth: 0, ...(index === 0 ? {} : { borderLeft: COLUMN_RULE }) }}>
       <Group gap={6} wrap='nowrap' px='sm' py={8} style={{ flex: 'none' }} onMouseEnter={() => setHovered(true)} onMouseLeave={() => setHovered(false)}>
         <Text fw={600} size='sm' truncate style={{ minWidth: 0 }}>{title}</Text>
         <Badge size='sm' variant='light' color='gray' radius='sm' style={{ flex: 'none' }}>{count}</Badge>
@@ -663,7 +721,7 @@ function ColumnFrame({ index, title, count, edit, editing, controls, footer, chi
  */
 function ColumnCards({ droppable, children }: { droppable: DroppableProvided; children: ReactNode }) {
   const phone = usePhone();
-  const style: CSSProperties = { position: 'relative', ...(phone ? { minHeight: 48 } : { padding: 8 }) };
+  const style: CSSProperties = { position: 'relative', ...(phone ? {} : { padding: 8 }) };
   if (phone) return <div ref={droppable.innerRef} {...droppable.droppableProps} style={style}>{children}</div>;
   return (
     <ScrollBox frameStyle={{ flex: 1, minHeight: 0 }} viewportRef={droppable.innerRef} {...droppable.droppableProps} style={style}>
@@ -864,12 +922,16 @@ const splitTyped = (text: string): { title: string; description: string } => {
   return { title: first === -1 ? '' : lines[first].trim(), description: rest.join('\n') };
 };
 
+/** The room a phone's add line takes at the foot of the screen, which the list leaves under its last row. */
+const PHONE_ADD_ROOM = 72;
+
 /**
- * The line at the foot of Todo that adds an item. It takes several lines, pasted or with
- * Shift+Enter: the first is the title and the rest the description. Enter adds it and leaves the
- * line for the next.
+ * The line at the foot of Todo that adds an item; on a phone, larger, floating at the foot of the
+ * screen over the list, which leaves it room. It takes several lines, pasted or with Shift+Enter:
+ * the first is the title and the rest the description. Enter adds it and leaves the line for the next.
  */
 function AddCard({ list, onAdded }: { list: string; onAdded: () => void }) {
+  const phone = usePhone();
   const [text, setText] = useState('');
   const [busy, setBusy] = useState(false);
   const { title, description } = splitTyped(text);
@@ -885,14 +947,15 @@ function AddCard({ list, onAdded }: { list: string; onAdded: () => void }) {
     setBusy(false);
   };
 
-  return (
+  const form = (
     <Box component='form' onSubmit={add}>
       <Textarea
-        size='sm'
+        size={phone ? 'md' : 'sm'}
+        radius={phone ? 'xl' : undefined}
         placeholder='Add an item'
         autosize
         minRows={1}
-        maxRows={8}
+        maxRows={phone ? 5 : 8}
         value={text}
         onChange={(event) => setText(event.currentTarget.value)}
         onKeyDown={(event) => {
@@ -903,14 +966,43 @@ function AddCard({ list, onAdded }: { list: string; onAdded: () => void }) {
         disabled={busy}
         aria-label='New item: the first line its title, the rest its description'
         title='Shift+Enter for a new line: the first line is the title, the rest the description'
-        leftSection={<TablerIcon name='plus' size={14} />}
+        leftSection={<TablerIcon name='plus' size={phone ? 18 : 14} />}
         rightSection={
-          <ActionIcon type='submit' variant='subtle' size='sm' loading={busy} disabled={!title} aria-label='Add'>
-            <TablerIcon name='corner-down-left' size={14} />
+          <ActionIcon
+            type='submit'
+            variant={phone ? 'filled' : 'subtle'}
+            radius={phone ? 'xl' : undefined}
+            size={phone ? 'lg' : 'sm'}
+            loading={busy}
+            disabled={!title}
+            aria-label='Add'
+          >
+            <TablerIcon name={phone ? 'arrow-up' : 'corner-down-left'} size={phone ? 18 : 14} />
           </ActionIcon>
         }
+        rightSectionWidth={phone ? 44 : undefined}
       />
     </Box>
+  );
+  if (!phone) return form;
+  return (
+    <>
+      <Box h={PHONE_ADD_ROOM} />
+      <Box
+        style={{
+          position: 'fixed',
+          left: 'var(--app-shell-navbar-offset, 0px)',
+          right: 0,
+          bottom: 0,
+          zIndex: 'calc(var(--mantine-z-index-app) - 1)',
+          padding: '10px 12px calc(10px + env(safe-area-inset-bottom, 0px))',
+          background: 'var(--mrx-surface-chrome)',
+          borderTop: COLUMN_RULE,
+        }}
+      >
+        {form}
+      </Box>
+    </>
   );
 }
 
@@ -1022,6 +1114,8 @@ function ListBoard({ path, highlight }: { path: string; highlight: string | null
     // A card let go over the phone's panel goes to the end of the column it names.
     const panel = panelRef.current;
     setLifted(false);
+    // A row held still was opened, not moved.
+    if (heldStill()) return;
     const destination = panel ? { droppableId: panel, index: (arranged[panel] ?? []).filter((each) => each !== draggableId).length } : over;
     if (!destination || (source.droppableId === destination.droppableId && source.index === destination.index)) return;
     const next = Object.fromEntries(Object.entries(arranged).map(([column, paths]) => [column, paths.filter((each) => each !== draggableId)]));
@@ -1199,6 +1293,8 @@ function OverviewBoard({ lists, onOpen }: { lists: TodoList[]; onOpen: (path: st
     const key = panelRef.current ?? destination?.droppableId;
     setDragList(null);
     setLanding(null);
+    // A row held still was opened, not moved.
+    if (heldStill()) return;
     if (!key || key === source.droppableId) return;
     const list = listOf(draggableId);
     const target = columns.find((column) => column.key === key)?.paths.get(list ?? '');
