@@ -5,7 +5,7 @@ import { Dialog, DialogActions, EmptyState, HatField, Markdown, PageBar, PageLoa
 import { useCommand, usePhone } from '@ein/ui/hooks';
 import { plainMarkdown, shq } from '@ein/ui/lib';
 import { execCommand, notify, onOutsideEdit, openDialog } from '@ein/ui/signals';
-import { type FocusEvent, type FormEvent, type KeyboardEvent, type MouseEvent, type ReactNode, useEffect, useRef, useState } from 'react';
+import { type CSSProperties, type FocusEvent, type FormEvent, type KeyboardEvent, type MouseEvent, type ReactNode, useEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import type { TodoColumn, TodoItem, TodoList, TodoListing, TodoMember, TodoMine } from '../../lib/api.ts';
 import { Face } from '../components/Face.tsx';
@@ -443,23 +443,31 @@ const doneLabel = (item: TodoItem, members: TodoMember[]): string => {
   return `Done${who}${item.doneAt ? `, ${new Date(item.doneAt).toLocaleString()}` : ''}`;
 };
 
-/** The board's scroller: its columns side by side, sharing its width and filling its height; sideways when they do not fit. */
+/**
+ * The board: all of the page under the bar, its columns side by side sharing its width and filling
+ * its height, sideways when they do not fit; on a phone stacked, the board scrolling down as one.
+ */
 function BoardScroller({ children }: { children: ReactNode }) {
+  const phone = usePhone();
   return (
-    <Box p='md' h='100%' style={{ boxSizing: 'border-box' }}>
-      {/* One rounded frame; the columns inside it meet edge to edge, and it clips their outer corners. */}
-      <Box h='100%' style={{ display: 'flex', alignItems: 'stretch', overflowX: 'auto', overflowY: 'hidden', borderRadius: 'var(--mantine-radius-md)' }}>{children}</Box>
+    <Box
+      h='100%'
+      bg='var(--mrx-surface-raised)'
+      style={phone ? { overflowY: 'auto' } : { display: 'flex', alignItems: 'stretch', overflowX: 'auto', overflowY: 'hidden' }}
+    >
+      {children}
     </Box>
   );
 }
 
-/** The shades the columns take in turn, so that each stands apart from the next without a gap. */
-const COLUMN_SHADES = ['var(--mrx-surface-raised)', 'color-mix(in srgb, var(--mrx-surface-raised) 50%, var(--mrx-surface-base))'];
+/** The line between two columns. */
+const COLUMN_RULE = '1px solid var(--mantine-color-default-border)';
 
 /**
- * A column: its heading over its cards, which scroll on their own, and a `footer` under them that
- * stays in sight, in the shade of its place `index` on the board. Columns share the board's width,
- * none narrower than 260px; a phone shows one at a time with the next peeking in.
+ * A column: its heading over its cards and a `footer` under them, ruled off from the column before
+ * it (`index`). Side by side the columns share the board's width, none narrower than 260px, and
+ * each scrolls its own cards with the footer in sight under them; stacked on a phone each is as
+ * tall as its cards.
  */
 function ColumnFrame({ index, title, count, controls, footer, children }: {
   index: number;
@@ -470,12 +478,9 @@ function ColumnFrame({ index, title, count, controls, footer, children }: {
   children: ReactNode;
 }) {
   const phone = usePhone();
+  const rule = index === 0 ? {} : phone ? { borderTop: COLUMN_RULE } : { borderLeft: COLUMN_RULE };
   return (
-    <Paper
-      radius={0}
-      bg={COLUMN_SHADES[index % COLUMN_SHADES.length]}
-      style={{ display: 'flex', flexDirection: 'column', minHeight: 0, ...(phone ? { flex: 'none', width: 'calc(100vw - 64px)' } : { flex: '1 0 260px' }) }}
-    >
+    <Box style={{ display: 'flex', flexDirection: 'column', minHeight: 0, ...rule, ...(phone ? {} : { flex: '1 0 260px' }) }}>
       <Group gap='xs' wrap='nowrap' px='sm' py={8} style={{ flex: 'none' }}>
         <Text fw={600} size='sm' truncate style={{ flex: 1, minWidth: 0 }}>{title}</Text>
         <Text size='xs' c='dimmed'>{count}</Text>
@@ -483,12 +488,62 @@ function ColumnFrame({ index, title, count, controls, footer, children }: {
       </Group>
       {children}
       {footer && <Box px={8} pb={8} style={{ flex: 'none' }}>{footer}</Box>}
-    </Paper>
+    </Box>
   );
 }
 
-/** The style of a column's cards: they take what the heading and footer leave and scroll there. */
-const COLUMN_CARDS = { flex: 1, minHeight: 0, overflowY: 'auto', borderRadius: 'var(--mantine-radius-sm)' } as const;
+/** The style of a column's cards: side by side they take what the heading and footer leave and scroll there; stacked, they take their own height. */
+const columnCards = (phone: boolean): CSSProperties => phone ? { position: 'relative', minHeight: 48 } : { flex: 1, minHeight: 0, overflowY: 'auto', position: 'relative' };
+
+/** What a drop target in the phone's panel is called: the column's own id after this. */
+const PANEL_TARGET = 'panel:';
+
+/**
+ * On a phone, while a card is lifted, a panel at the foot of the screen with a target for every
+ * column, by name: a card dropped on one goes to the end of that column, with no dragging down the
+ * stacked board. A target `disabled` takes no drop and is shown faded.
+ */
+function DropPanel({ targets }: { targets: { id: string; title: string; disabled?: boolean }[] }) {
+  return (
+    <Box
+      p='sm'
+      style={{
+        position: 'fixed',
+        insetInline: 0,
+        bottom: 0,
+        zIndex: 300,
+        display: 'grid',
+        gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
+        gap: 8,
+        background: 'var(--mrx-surface-chrome)',
+        borderTop: COLUMN_RULE,
+        boxShadow: 'var(--mantine-shadow-lg)',
+      }}
+    >
+      {targets.map((target) => (
+        <Droppable key={target.id} droppableId={`${PANEL_TARGET}${target.id}`} isDropDisabled={target.disabled}>
+          {(droppable, state) => (
+            <Box
+              ref={droppable.innerRef}
+              {...droppable.droppableProps}
+              p='md'
+              style={{
+                border: `2px dashed ${state.isDraggingOver ? 'var(--mantine-primary-color-filled)' : 'var(--mantine-color-default-border)'}`,
+                borderRadius: 'var(--mantine-radius-md)',
+                background: state.isDraggingOver ? 'var(--mantine-primary-color-light)' : 'var(--mrx-surface-raised)',
+                opacity: target.disabled ? .4 : 1,
+                textAlign: 'center',
+              }}
+            >
+              {/* No placeholder: a card dropped here leaves the panel as it is. */}
+              <Text size='sm' fw={600} truncate>{target.title}</Text>
+            </Box>
+          )}
+        </Droppable>
+      ))}
+    </Box>
+  );
+}
 
 /**
  * The pencil in a column's heading: a popover with the column's title, saved as the folder's `name`
@@ -673,6 +728,9 @@ function ListBoard({ path, highlight }: { path: string; highlight: string | null
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const [archiving, setArchiving] = useState(false);
   const [landing, setLanding] = useState<Landing | null>(null);
+  const phone = usePhone();
+  // Whether a card is lifted on a phone, which brings up the panel of columns to drop it on.
+  const [lifted, setLifted] = useState(false);
   useEffect(() => setDropped(null), [listing.data]);
   useEffect(() => onOutsideEdit(() => void listing.refetch()), [listing.refetch]);
 
@@ -704,8 +762,12 @@ function ListBoard({ path, highlight }: { path: string; highlight: string | null
       return next;
     });
 
-  const drop = async ({ source, destination, draggableId }: DropResult) => {
+  const drop = async ({ source, destination: over, draggableId }: DropResult) => {
     setLanding(null);
+    setLifted(false);
+    // A drop on the phone's panel goes to the end of that column.
+    const panel = over?.droppableId.startsWith(PANEL_TARGET) ? over.droppableId.slice(PANEL_TARGET.length) : undefined;
+    const destination = panel ? { droppableId: panel, index: (arranged[panel] ?? []).filter((each) => each !== draggableId).length } : over;
     if (!destination || (source.droppableId === destination.droppableId && source.index === destination.index)) return;
     const next = Object.fromEntries(Object.entries(arranged).map(([column, paths]) => [column, paths.filter((each) => each !== draggableId)]));
     const into = next[destination.droppableId] ?? [];
@@ -755,10 +817,12 @@ function ListBoard({ path, highlight }: { path: string; highlight: string | null
 
   return (
     <DragDropContext
+      onBeforeCapture={() => setLifted(phone)}
       onDragStart={(start) => setLanding(landingOf(start.draggableId, start.source))}
       onDragUpdate={(update) => setLanding(landingOf(update.draggableId, update.destination))}
       onDragEnd={(result) => void drop(result)}
     >
+      {lifted && <DropPanel targets={columns.map((column) => ({ id: column.path, title: column.title }))} />}
       <BoardScroller>
         {columns.map((column, index) => {
           const cards = cardsOf(column);
@@ -784,7 +848,7 @@ function ListBoard({ path, highlight }: { path: string; highlight: string | null
                     gap={0}
                     px={8}
                     pb={8}
-                    style={{ ...COLUMN_CARDS, position: 'relative' }}
+                    style={columnCards(phone)}
                   >
                     {cards.map((item, index) => (
                       <Draggable key={item.path} draggableId={item.path} index={index}>
@@ -861,6 +925,7 @@ function OverviewBoard({ lists, onOpen }: { lists: TodoList[]; onOpen: (path: st
   // The list of the card being dragged: the columns it lacks take no drop.
   const [dragList, setDragList] = useState<string | null>(null);
   const [landing, setLanding] = useState<Landing | null>(null);
+  const phone = usePhone();
   useEffect(() => onOutsideEdit(() => void mine.refetch()), [mine.refetch]);
   useEffect(() => setDropped({}), [mine.data]);
   if (mine.loading && !mine.data) return <PageLoader />;
@@ -885,11 +950,14 @@ function OverviewBoard({ lists, onOpen }: { lists: TodoList[]; onOpen: (path: st
   const drop = async ({ source, destination, draggableId }: DropResult) => {
     setDragList(null);
     setLanding(null);
-    if (!destination || destination.droppableId === source.droppableId) return;
+    if (!destination) return;
+    // A drop on the phone's panel names the column after its prefix.
+    const key = destination.droppableId.startsWith(PANEL_TARGET) ? destination.droppableId.slice(PANEL_TARGET.length) : destination.droppableId;
+    if (key === source.droppableId) return;
     const list = listOf(draggableId);
-    const target = columns.find((column) => column.key === destination.droppableId)?.paths.get(list ?? '');
+    const target = columns.find((column) => column.key === key)?.paths.get(list ?? '');
     if (!target) return;
-    setDropped((shown) => ({ ...shown, [draggableId]: destination.droppableId }));
+    setDropped((shown) => ({ ...shown, [draggableId]: key }));
     if (await run(`todo-move ${shq(draggableId)} --column ${shq(target)}`)) changed();
     else setDropped({});
   };
@@ -901,6 +969,7 @@ function OverviewBoard({ lists, onOpen }: { lists: TodoList[]; onOpen: (path: st
       onDragUpdate={(update) => setLanding(update.destination?.droppableId === update.source.droppableId ? null : landingOf(update.draggableId, update.destination))}
       onDragEnd={(result) => void drop(result)}
     >
+      {phone && dragList !== null && <DropPanel targets={columns.map((column) => ({ id: column.key, title: column.title, disabled: !column.paths.has(dragList) }))} />}
       <BoardScroller>
         {columns.map((column, index) => {
           const cards = items.filter((item) => placed(item) === column.key);
@@ -908,7 +977,7 @@ function OverviewBoard({ lists, onOpen }: { lists: TodoList[]; onOpen: (path: st
             <ColumnFrame key={column.key} index={index} title={column.title} count={cards.length}>
               <Droppable droppableId={column.key} isDropDisabled={dragList !== null && !column.paths.has(dragList)}>
                 {(droppable) => (
-                  <Stack ref={droppable.innerRef} {...droppable.droppableProps} gap={0} px={8} pb={8} style={{ ...COLUMN_CARDS, position: 'relative' }}>
+                  <Stack ref={droppable.innerRef} {...droppable.droppableProps} gap={0} px={8} pb={8} style={columnCards(phone)}>
                     {cards.map((item, at) => (
                       <Draggable key={item.path} draggableId={item.path} index={at}>
                         {(draggable, drag) => (
