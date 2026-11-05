@@ -293,7 +293,7 @@ function TodoCard({ item, members, expanded, onExpand, highlighted, onChanged, d
         >
           {item.title}
         </Text>
-        <Group gap={2} wrap='nowrap' align='center' style={{ flex: 'none' }}>
+        <Group gap={2} wrap='nowrap' align='center' style={{ flex: 'none', filter: CARD_BAND_ICON_SHADOW }}>
           {tools && (
             <Tooltip label='Change'>
               <ActionIcon variant='subtle' color='gray' size='sm' aria-label={`Change ${item.title}`} onClick={edit}>
@@ -338,7 +338,18 @@ const CARD_EDGE_HIGHLIGHTED = 'var(--mantine-primary-color-filled)';
 const CARD_EDGE_HOVERED = 'var(--mantine-color-dark-2)';
 
 /** The band a card's heading stands on: the ground of a page's band, its hat field behind the heading. */
-const CARD_BAND = { position: 'relative', overflow: 'hidden', isolation: 'isolate', background: 'var(--mrx-surface-chrome)', transition: 'filter 120ms ease' } as const;
+const CARD_BAND = {
+  position: 'relative',
+  overflow: 'hidden',
+  isolation: 'isolate',
+  background: 'var(--mrx-surface-chrome)',
+  transition: 'filter 120ms ease',
+  // A dark edge under the heading's light text and icons, so they read over any tile.
+  textShadow: '0 1px 2px rgb(0 0 0 / .9)',
+} as const;
+
+/** The same dark edge for the heading's buttons and faces, which a text shadow does not reach. */
+const CARD_BAND_ICON_SHADOW = 'drop-shadow(0 1px 1.5px rgb(0 0 0 / .85))';
 
 /** How long a card takes to turn from green to red, in days. */
 const AGE_SPAN = 28;
