@@ -559,7 +559,7 @@ const columnAt = async (cmd: Command, list: string, arg: string): Promise<string
 };
 
 /** Where `todo-move` puts an item: into a column, beside another item, or both when they agree. */
-export type MoveTarget = { column?: string; before?: string; after?: string };
+type MoveTarget = { column?: string; before?: string; after?: string };
 
 /**
  * Put the item at `arg` into a column of its list, at its end, or just before or just after another
