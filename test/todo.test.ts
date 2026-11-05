@@ -133,6 +133,14 @@ Deno.test({ name: 'todo lists', sanitizeResources: false, sanitizeOps: false }, 
       assertEquals(await columns(), [['Todo', 'todo'], ['basket', 'doing'], ['Done', 'done']]);
       await bo.execString(`attrs ${shopping}/basket -s 'name=In the basket'`);
       assertEquals(await columns(), [['Todo', 'todo'], ['In the basket', 'doing'], ['Done', 'done']]);
+      // An order attr puts the columns in that order, Todo first and Done last still.
+      await bo.execString(`mkdir ${shopping}/aisle`);
+      assertEquals(await columns(), [['Todo', 'todo'], ['In the basket', 'doing'], ['aisle', 'doing'], ['Done', 'done']]);
+      await bo.execString(`attrs ${shopping}/aisle -J order=1 && attrs ${shopping}/basket -J order=2`);
+      assertEquals(await columns(), [['Todo', 'todo'], ['aisle', 'doing'], ['In the basket', 'doing'], ['Done', 'done']]);
+      const listed = (await anna.execJson<TodoList[]>('todo-lists')).find((list) => list.path === shopping);
+      assertEquals(listed?.columns?.map((column) => column.title), ['Todo', 'aisle', 'In the basket', 'Done']);
+      await bo.execString(`rmdir ${shopping}/aisle`);
     });
 
     await t.step('todo-move takes an item between columns, marking it done in Done and not done out of it', async () => {
@@ -200,6 +208,13 @@ Deno.test({ name: 'todo lists', sanitizeResources: false, sanitizeOps: false }, 
         'todo',
       ]]);
       assertEquals((await bo.execJson<TodoMine[]>('todo-mine')).map((item) => item.title), []);
+      // With --done, the done ones are there as well, in Done.
+      const apples = mine.find((item) => item.title === 'Apples')!;
+      await anna.execJson(`todo-done ${apples.path}`);
+      assertEquals((await anna.execJson<TodoMine[]>('todo-mine')).some((item) => item.title === 'Apples'), false);
+      const withDone = (await anna.execJson<TodoMine[]>('todo-mine --done')).find((item) => item.title === 'Apples');
+      assertEquals([withDone?.stage, withDone?.columnTitle], ['done', 'Done']);
+      await anna.execJson(`todo-done --undo ${withDone!.path}`);
     });
 
     await t.step("Home's events carry what falls due that is the reader's to do", async () => {

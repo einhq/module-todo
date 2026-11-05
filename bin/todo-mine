@@ -1,15 +1,19 @@
 #!ts
-/** todo-mine — what is left for you: items not done given to you, and those of your own lists that are nobody else's. */
+/** todo-mine — what is left for you: items not done given to you, and those of your own lists that are nobody else's; with --done the done ones too. */
 import type { CmdReturn, Command } from '@ein/client';
+import { collectUnknownFlags, parseArgs, reportUnknownFlags } from '@ein/client';
 import type { TodoMine } from '@todo/api';
 import { allLists, fail, itemLine } from '@todo/store';
 
 const todoMine = async (cmd: Command): CmdReturn => {
+  const unknown: string[] = [];
+  const flags = parseArgs(cmd.args, { boolean: ['done'], unknown: collectUnknownFlags(unknown) });
+  if (await reportUnknownFlags(cmd, unknown)) return 1;
   try {
     const me = cmd.env.USER ?? '';
     const mine: TodoMine[] = [];
-    for (const { list, columns, open } of await allLists(cmd, true)) {
-      for (const item of open) {
+    for (const { list, columns, items } of await allLists(cmd, flags.done ? 'all' : 'open')) {
+      for (const item of items) {
         if (item.assignee !== me && (list.group || item.assignee)) continue;
         const column = columns.find((each) => each.path === item.column)!;
         mine.push({ ...item, listTitle: list.title, ...(list.group ? { group: list.group } : {}), columnTitle: column.title, stage: column.stage });
@@ -29,11 +33,11 @@ todoMine.spec = {
   name: 'todo-mine',
   effect: 'read' as const,
   description:
-    "List what is left for you to do: items not done given to you on any list, and your own lists' items not done given to nobody, soonest due first, each with its column",
+    "List what is left for you to do: items not done given to you on any list, and your own lists' items not done given to nobody, soonest due first, each with its column; with --done the done ones too",
   args: [],
-  flags: [],
-  examples: ['todo-mine'],
-  returns: 'One entry per item, as todo-items gives them, with listTitle, group, columnTitle and stage (todo or doing).',
+  flags: [{ name: 'done', type: 'bool' as const, description: "the done ones as well, those in a list's done/ (not archived/)" }],
+  examples: ['todo-mine', 'todo-mine --done'],
+  returns: 'One entry per item, as todo-items gives them, with listTitle, group, columnTitle and stage (todo, doing or done).',
 };
 
 export default todoMine;

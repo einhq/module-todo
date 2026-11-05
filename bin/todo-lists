@@ -6,7 +6,7 @@ import { allLists, fail } from '@todo/store';
 
 const todoLists = async (cmd: Command): CmdReturn => {
   try {
-    const lists = (await allLists(cmd)).map(({ list }) => list);
+    const lists = (await allLists(cmd)).map(({ list, columns }) => ({ ...list, columns }));
     if (cmd.json) await cmd.writeJSON(lists satisfies TodoList[]);
     else for (const list of lists) await cmd.writeLn(`${list.title}  ${list.open}/${list.total} open  ${list.group ? `(${list.group})  ` : ''}${list.path}`);
     return 0;
@@ -22,7 +22,7 @@ todoLists.spec = {
   args: [],
   flags: [],
   examples: ['todo-lists'],
-  returns: 'One entry per list: path, title, group (absent for your own), open and total.',
+  returns: 'One entry per list: path, title, group (absent for your own), open, total, and its columns (path, title, stage) in their order.',
 };
 
 export default todoLists;

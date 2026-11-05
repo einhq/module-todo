@@ -35,6 +35,9 @@ const ARCHIVED_DIR = 'archived';
 /** The attr that names a column, when its folder's name is not what it is to be called. */
 const COLUMN_NAME_ATTR = 'name';
 
+/** The attr that places a column among the list's own, written when they are put in an order by hand. */
+const COLUMN_ORDER_ATTR = 'order';
+
 const ITEM_MIMETYPE = 'text/markdown';
 
 /** A reader's own lists: closed to everyone else, so neither they nor search see them. */
@@ -264,7 +267,7 @@ const columnTitle = (name: string, attrs: NodeAttrs): string => {
 
 /** The columns of the list at `list`, from a listing of it: Todo, its folders as they were made, Done whether or not `done/` is there yet. */
 const columnsOf = (list: string, entries: NodeChildEntry[]): TodoColumn[] => {
-  const folders = entries.filter(isColumnDir).sort(byAdded);
+  const folders = entries.filter(isColumnDir).sort(byAdded).sort(byColumnOrder);
   const done = folders.find((entry) => entry.name === DONE_DIR);
   return [
     { path: list, title: 'Todo', stage: 'todo' },
@@ -275,6 +278,15 @@ const columnsOf = (list: string, entries: NodeChildEntry[]): TodoColumn[] => {
     })),
     { path: `${list}/${DONE_DIR}`, title: done ? columnTitle(DONE_DIR, done.node.attrs) : 'Done', stage: 'done' },
   ];
+};
+
+/** A column folder's place on the board, from its `order` attr. */
+const columnOrder = (entry: NodeChildEntry): number | undefined => orderOf(entry.node.attrs[COLUMN_ORDER_ATTR]);
+
+/** Column folders with an `order` by it, then the rest as they came; the sort is stable. */
+const byColumnOrder = (a: NodeChildEntry, b: NodeChildEntry): number => {
+  const [x, y] = [columnOrder(a), columnOrder(b)];
+  return x === undefined ? (y === undefined ? 0 : 1) : y === undefined ? -1 : x - y;
 };
 
 const placeIn = (list: string, column: TodoColumn): Place => ({ list, column: column.path, done: column.stage === 'done' });
@@ -315,10 +327,10 @@ const countOf = (columns: TodoColumn[], listed: Map<string, NodeChildEntry<FileA
 
 /**
  * Every list the caller can see, their own and then each of their groups', by title, with its
- * columns; with `withOpen`, each list's items in any column but Done read too. Done items are only
- * counted.
+ * columns; with `read` `open`, each list's items in any column but Done read too, with `all` those
+ * in Done as well. Archived items are never read.
  */
-export const allLists = async (cmd: Command, withOpen = false): Promise<{ list: TodoList; columns: TodoColumn[]; open: TodoItem[] }[]> => {
+export const allLists = async (cmd: Command, read: 'none' | 'open' | 'all' = 'none'): Promise<{ list: TodoList; columns: TodoColumn[]; items: TodoItem[] }[]> => {
   // `/groups` lists only the homes of the caller's groups: the others are hidden from them.
   const groups = (await children(cmd, GROUP_HOMES_PATH)).map((entry) => entry.name).sort();
   const roots = [personalRoot(cmd), ...groups.map(groupRoot)];
@@ -332,8 +344,8 @@ export const allLists = async (cmd: Command, withOpen = false): Promise<{ list: 
   return await Promise.all(paths.map(async (path, index) => {
     const { columns, listed } = boards[index];
     const { open, total } = countOf(columns, listed);
-    const items = withOpen ? await readColumns(cmd, path, columns.filter((column) => column.stage !== 'done'), listed) : [];
-    return { list: listOf(path, open, total), columns, open: items };
+    const shown = read === 'all' ? columns : read === 'open' ? columns.filter((column) => column.stage !== 'done') : [];
+    return { list: listOf(path, open, total), columns, items: await readColumns(cmd, path, shown, listed) };
   }));
 };
 

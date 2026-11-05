@@ -26,8 +26,8 @@ const eventsTodo = async (cmd: Command): CmdReturn => {
   try {
     const me = cmd.env.USER ?? '';
     const entries: Provided<EventEntry>[] = [];
-    for (const { list, open } of await allLists(cmd, true)) {
-      for (const item of open) {
+    for (const { list, items } of await allLists(cmd, 'open')) {
+      for (const item of items) {
         if (!item.due || item.due < from || item.due > to) continue;
         if (item.assignee && item.assignee !== me) continue;
         entries.push({

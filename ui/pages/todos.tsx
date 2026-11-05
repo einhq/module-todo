@@ -1,7 +1,7 @@
-import { ActionIcon, Box, Button, Checkbox, Group, Menu, Paper, Popover, Stack, Tabs, Text, TextInput, Tooltip, UnstyledButton } from '@mantine/core';
+import { ActionIcon, Box, Button, Checkbox, Group, Menu, Paper, Popover, Stack, Tabs, Text, TextInput, Tooltip } from '@mantine/core';
 import { DatePicker } from '@mantine/dates';
 import { DragDropContext, Draggable, type DraggableLocation, type DraggableProvidedDragHandleProps, Droppable, type DropResult } from '@hello-pangea/dnd';
-import { EmptyState, HatField, Markdown, PageBar, PageLoader, TablerIcon } from '@ein/ui/components';
+import { Dialog, DialogActions, EmptyState, HatField, Markdown, PageBar, PageLoader, TablerIcon } from '@ein/ui/components';
 import { useCommand, usePhone } from '@ein/ui/hooks';
 import { plainMarkdown, shq } from '@ein/ui/lib';
 import { execCommand, notify, onOutsideEdit, openDialog } from '@ein/ui/signals';
@@ -54,6 +54,21 @@ export default function TodosPage() {
   const lists = useCommand<TodoList[]>('todo-lists');
 
   const open = (path: string | null) => setParams(path ? { list: path } : {});
+  const [deleting, setDeleting] = useState<TodoList | null>(null);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => onOutsideEdit(() => void lists.refetch()), [lists.refetch]);
+
+  // For good, with every item and column; what the items link to stays where it is.
+  const remove = async (list: TodoList) => {
+    setBusy(true);
+    if (await run(`rm -r ${shq(list.path)}`)) {
+      notify({ message: `Deleted the list "${list.title}".`, color: 'green' });
+      if (listPath === list.path) open(null);
+      setDeleting(null);
+      void lists.refetch();
+    }
+    setBusy(false);
+  };
 
   // A list made in the New list dialog opens here before the lists have heard of it.
   const known = lists.data?.some((list) => list.path === listPath) ?? true;
@@ -92,6 +107,25 @@ export default function TodosPage() {
                   value={list.path}
                   title={list.group ? `Shared with ${list.group}` : 'Your own'}
                   leftSection={phone ? undefined : <TablerIcon name={list.group ? 'users' : 'list-check'} size={16} />}
+                  rightSection={
+                    // Not a button: the tab is one already. A click here deletes rather than opens.
+
+
+                      <Box
+                        component='span'
+                        role='button'
+                        aria-label={`Delete ${list.title}`}
+                        title='Delete the list'
+                        onClick={(event: MouseEvent<HTMLSpanElement>) => {
+                          event.stopPropagation();
+                          setDeleting(list);
+                        }}
+                        style={{ display: 'flex', opacity: .7, cursor: 'pointer' }}
+                      >
+                        <TablerIcon name='x' size={14} />
+                      </Box>
+
+                  }
                 >
                   {list.title}
                 </Tabs.Tab>
@@ -103,6 +137,18 @@ export default function TodosPage() {
           {listPath ? <ListBoard key={listPath} path={listPath} highlight={params.get('item')} /> : <OverviewBoard lists={lists.data ?? []} onOpen={open} />}
         </Box>
       </Tabs>
+      <Dialog opened={deleting !== null} onClose={() => setDeleting(null)} title='Delete the list?' icon='trash' pattern='danger' size='sm' floating>
+        {deleting && (
+          <Text size='sm'>
+            <b>{deleting.title}</b> is deleted for good, with {deleting.total === 1 ? 'its item' : `its ${deleting.total} items`} and any it has archived
+            {deleting.group ? `, for everyone in ${deleting.group}` : ''}. What they link to stays where it is. This cannot be undone.
+          </Text>
+        )}
+        <DialogActions>
+          <Button variant='default' onClick={() => setDeleting(null)}>Cancel</Button>
+          <Button color='red' loading={busy} onClick={() => deleting && void remove(deleting)}>Delete the list</Button>
+        </DialogActions>
+      </Dialog>
     </Paper>
   );
 }
@@ -207,14 +253,14 @@ function AssigneeButton({ item, members, onChanged }: { item: TodoItem; members:
 }
 
 /**
- * One item as a card. Its heading: the title, the pencil that opens the item's dialog, the due day
- * once it has one, and the face of whoever is to do it; on a desktop the pencil, and the calendar
- * of an item with no day, show while the card is hovered or focused. Under it the description's
- * first line, ending in an ellipsis whenever more follows, which a click opens whole as markdown
- * and another folds; `aside`; and last what the
- * item links to. `onSelect` gives it a box to pick it by.
+ * One item as a card. Its heading: the title (after `prefix`, on the Overview its list), the pencil
+ * that opens the item's dialog, the due day once it has one, and the face of whoever is to do it;
+ * on a desktop the pencil, and the calendar of an item with no day, show while the card is hovered
+ * or focused. Under it the description's first line, ending in an ellipsis whenever more follows,
+ * which a click opens whole as markdown and another folds; and last what the item links to.
+ * `onSelect` gives it a box to pick it by.
  */
-function TodoCard({ item, members, expanded, onExpand, highlighted, onChanged, dragHandle, dragging, selected, onSelect, aside }: {
+function TodoCard({ item, members, expanded, onExpand, highlighted, onChanged, dragHandle, dragging, selected, onSelect, prefix, onPrefix }: {
   item: TodoItem;
   members: TodoMember[];
   /** Whether the description is open whole. */
@@ -227,7 +273,10 @@ function TodoCard({ item, members, expanded, onExpand, highlighted, onChanged, d
   dragging?: boolean;
   selected?: boolean;
   onSelect?: (selected: boolean) => void;
-  aside?: ReactNode;
+  /** Before the title, as "<prefix> › <title>": the list a card on the Overview is on. */
+  prefix?: string;
+  /** What a click on the prefix does: open that list. */
+  onPrefix?: () => void;
 }) {
   const phone = usePhone();
   const ref = useRef<HTMLDivElement>(null);
@@ -291,6 +340,20 @@ function TodoCard({ item, members, expanded, onExpand, highlighted, onChanged, d
           mt={1}
           style={{ flex: 1, minWidth: 0 }}
         >
+          {prefix && (
+            <Text
+              span
+              inherit
+              c='dimmed'
+              onClick={onPrefix && ((event: MouseEvent<HTMLSpanElement>) => {
+                event.stopPropagation();
+                onPrefix();
+              })}
+              style={onPrefix ? { cursor: 'pointer' } : undefined}
+            >
+              {prefix} ›{' '}
+            </Text>
+          )}
           {item.title}
         </Text>
         <Group gap={2} wrap='nowrap' align='center' style={{ flex: 'none', filter: CARD_BAND_ICON_SHADOW }}>
@@ -305,7 +368,7 @@ function TodoCard({ item, members, expanded, onExpand, highlighted, onChanged, d
           <AssigneeButton item={item} members={members} onChanged={onChanged} />
         </Group>
       </Group>
-      {(item.description || aside || item.links) && (
+      {(item.description || item.links) && (
         <Box px='xs' pt={6} pb='xs'>
           {item.description && (
             // Not a button: a drag cannot start on one.
@@ -319,9 +382,8 @@ function TodoCard({ item, members, expanded, onExpand, highlighted, onChanged, d
                 : <Text size='sm' c='dimmed' lineClamp={1}>{firstLine(item.description)}</Text>}
             </Box>
           )}
-          {aside && <Group gap={6} mt={item.description ? 6 : 0} wrap='wrap'>{aside}</Group>}
           {item.links && (
-            <Group gap={6} mt={item.description || aside ? 6 : 0}>
+            <Group gap={6} mt={item.description ? 6 : 0}>
               {item.links.map((link) => <LinkChip key={link.path} link={link} />)}
             </Group>
           )}
@@ -360,9 +422,9 @@ const AGE_SPAN = 28;
  * it was made, is grey. All are dark, so the tint stays behind the title rather than over it.
  */
 const ageColor = (item: TodoItem): string => {
-  if (item.done || !item.added) return 'hsl(220 8% 24%)';
+  if (item.done || !item.added) return 'hsl(220 8% 16%)';
   const days = Math.max(0, (Date.now() - Date.parse(item.added)) / 86_400_000);
-  return `hsl(${Math.round(130 * (1 - Math.min(1, days / AGE_SPAN)))} 50% 22%)`;
+  return `hsl(${Math.round(130 * (1 - Math.min(1, days / AGE_SPAN)))} 50% 14%)`;
 };
 
 /** When a card was added, in words, for its band's hover. */
@@ -430,11 +492,23 @@ const COLUMN_CARDS = { flex: 1, minHeight: 0, overflowY: 'auto', borderRadius: '
 
 /**
  * The pencil in a column's heading: a popover with the column's title, saved as the folder's `name`
- * attr, and, for a column of the list's own making, Delete, which takes the folder away once no
- * card is left in it; Done and Todo stay.
+ * attr, and, for a column of the list's own making, Left and Right, which write every such column's
+ * `order` attr in the new order, and Delete, which takes the folder away once no card is left in it;
+ * Done and Todo stay where they are.
  */
-function ColumnMenu({ column, count, onChanged }: { column: TodoColumn; count: number; onChanged: () => void }) {
+function ColumnMenu({ column, columns, count, onChanged }: { column: TodoColumn; columns: TodoColumn[]; count: number; onChanged: () => void }) {
   const [opened, setOpened] = useState(false);
+  // The list's own columns, between Todo and Done, which are all that move.
+  const own = columns.filter((each) => each.stage === 'doing');
+  const at = own.findIndex((each) => each.path === column.path);
+  /** Swap this column with its neighbour `by` places along, and number every own column in the new order. */
+  const move = async (by: -1 | 1) => {
+    const order = [...own];
+    [order[at], order[at + by]] = [order[at + by], order[at]];
+    setBusy(true);
+    if (await run(order.map((each, index) => `attrs ${shq(each.path)} -J order=${index + 1}`).join(' && '))) onChanged();
+    setBusy(false);
+  };
   const [name, setName] = useState(column.title);
   const [busy, setBusy] = useState(false);
   const submit = async (event: FormEvent) => {
@@ -459,7 +533,7 @@ function ColumnMenu({ column, count, onChanged }: { column: TodoColumn; count: n
   return (
     <Popover opened={opened} onChange={setOpened} position='bottom-end' shadow='md' trapFocus onOpen={() => setName(column.title)}>
       <Popover.Target>
-        <Tooltip label={column.stage === 'doing' ? 'Rename or delete the column' : 'Rename the column'}>
+        <Tooltip label={column.stage === 'doing' ? 'Rename, move or delete the column' : 'Rename the column'}>
           <ActionIcon variant='subtle' color='gray' size='sm' aria-label={`Change ${column.title}`} onClick={() => setOpened((shown) => !shown)}>
             <TablerIcon name='pencil' size={14} />
           </ActionIcon>
@@ -468,6 +542,22 @@ function ColumnMenu({ column, count, onChanged }: { column: TodoColumn; count: n
       <Popover.Dropdown>
         <Stack component='form' onSubmit={submit} gap='xs' w={240}>
           <TextInput size='xs' label='Column name' value={name} onChange={(event) => setName(event.currentTarget.value)} data-autofocus />
+          {column.stage === 'doing' && own.length > 1 && (
+            <Group gap='xs' grow>
+              <Button size='xs' variant='default' leftSection={<TablerIcon name='arrow-left' size={14} />} onClick={() => void move(-1)} disabled={busy || at === 0}>
+                Left
+              </Button>
+              <Button
+                size='xs'
+                variant='default'
+                rightSection={<TablerIcon name='arrow-right' size={14} />}
+                onClick={() => void move(1)}
+                disabled={busy || at === own.length - 1}
+              >
+                Right
+              </Button>
+            </Group>
+          )}
           <Group justify='space-between' gap='xs'>
             {column.stage === 'doing'
               ? (
@@ -546,6 +636,25 @@ const landingOf = (draggableId: string, destination: DraggableLocation | null | 
   for (const each of others.slice(0, destination.index)) top += each.getBoundingClientRect().height;
   return { column: destination.droppableId, top, height: dragged.getBoundingClientRect().height - CARD_SPACE };
 };
+
+/** A dashed frame the size of a dragged card where it would land. */
+function LandingFrame({ landing }: { landing: Landing }) {
+  return (
+    <Box
+      aria-hidden
+      style={{
+        position: 'absolute',
+        top: landing.top,
+        left: 8,
+        right: 8,
+        height: landing.height,
+        border: '2px dashed var(--mantine-color-dimmed)',
+        borderRadius: 'var(--mantine-radius-sm)',
+        pointerEvents: 'none',
+      }}
+    />
+  );
+}
 
 /** The paths of a board's items, column by column, as the listing has them. */
 const arrangementOf = (listing: TodoListing): Record<string, string[]> =>
@@ -662,7 +771,7 @@ function ListBoard({ path, highlight }: { path: string; highlight: string | null
               controls={
                 <>
                   {column.stage === 'done' && doneControls}
-                  {column.stage !== 'todo' && <ColumnMenu column={column} count={cards.length} onChanged={changed} />}
+                  {column.stage !== 'todo' && <ColumnMenu column={column} columns={columns} count={cards.length} onChanged={changed} />}
                 </>
               }
               footer={column.stage === 'todo' && <AddCard list={list.path} onAdded={changed} />}
@@ -704,21 +813,7 @@ function ListBoard({ path, highlight }: { path: string; highlight: string | null
                       </Draggable>
                     ))}
                     {droppable.placeholder}
-                    {landing?.column === column.path && (
-                      <Box
-                        aria-hidden
-                        style={{
-                          position: 'absolute',
-                          top: landing.top,
-                          left: 8,
-                          right: 8,
-                          height: landing.height,
-                          border: '2px dashed var(--mantine-color-dimmed)',
-                          borderRadius: 'var(--mantine-radius-sm)',
-                          pointerEvents: 'none',
-                        }}
-                      />
-                    )}
+                    {landing?.column === column.path && <LandingFrame landing={landing} />}
                   </Stack>
                 )}
               </Droppable>
@@ -730,64 +825,126 @@ function ListBoard({ path, highlight }: { path: string; highlight: string | null
   );
 }
 
+/** An Overview column: the columns of one title on the reader's lists put together, and where each list has it. */
+type MergedColumn = { key: string; title: string; stage: TodoColumn['stage']; paths: Map<string, string> };
+
+/** What puts columns together: Todo with Todo, Done with Done, the others by their title, letter case aside. */
+const mergeKey = (column: TodoColumn): string => column.stage === 'doing' ? `doing:${column.title.trim().toLocaleLowerCase()}` : column.stage;
+
+const STAGE_RANK = { todo: 0, doing: 1, done: 2 } as const;
+
+/** The columns of `lists` put together: Todo, every other title in the order first met, then Done. */
+const mergeColumns = (lists: TodoList[]): MergedColumn[] => {
+  const merged = new Map<string, MergedColumn>();
+  for (const list of lists) {
+    for (const column of list.columns ?? []) {
+      const key = mergeKey(column);
+      const entry = merged.get(key) ??
+        { key, title: column.stage === 'todo' ? 'Todo' : column.stage === 'done' ? 'Done' : column.title, stage: column.stage, paths: new Map() };
+      entry.paths.set(list.path, column.path);
+      merged.set(key, entry);
+    }
+  }
+  return [...merged.values()].sort((a, b) => STAGE_RANK[a.stage] - STAGE_RANK[b.stage]);
+};
+
 /**
- * What is the reader's to do on every list, as a board: not started, and started in any column of
- * its list. A card says which list it is on, and opens that list's tab; ticked off, it leaves.
+ * What is the reader's on every list, done too, as one board of their lists' columns put together
+ * by title. A card's title starts with its list, which opens that list's tab. A card is dragged to
+ * a column its own list has, and moved there on its list; a column its list lacks takes no drop.
  */
 function OverviewBoard({ lists, onOpen }: { lists: TodoList[]; onOpen: (path: string) => void }) {
-  const mine = useCommand<TodoMine[]>('todo-mine');
+  const mine = useCommand<TodoMine[]>('todo-mine --done');
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  // Where cards were dropped, by path, shown until the items are read again.
+  const [dropped, setDropped] = useState<Record<string, string>>({});
+  // The list of the card being dragged: the columns it lacks take no drop.
+  const [dragList, setDragList] = useState<string | null>(null);
+  const [landing, setLanding] = useState<Landing | null>(null);
   useEffect(() => onOutsideEdit(() => void mine.refetch()), [mine.refetch]);
+  useEffect(() => setDropped({}), [mine.data]);
   if (mine.loading && !mine.data) return <PageLoader />;
   if (mine.error) return <EmptyState title='Your items could not be read'>{mine.error.message}</EmptyState>;
   const items = mine.data ?? [];
   if (items.length === 0) {
     return (
-      <EmptyState title='Nothing left for you'>
+      <EmptyState title='Nothing for you'>
         {lists.length === 0
           ? "Make a list with New list in the bar's menu. Items assigned to you on any list, and those of your own lists assigned to nobody, gather here."
           : 'Items assigned to you on any list, and those of your own lists assigned to nobody, gather here.'}
       </EmptyState>
     );
   }
+
   const changed = () => void mine.refetch();
-  const stages: { title: string; stage: TodoMine['stage'] }[] = [{ title: 'Todo', stage: 'todo' }, { title: 'In progress', stage: 'doing' }];
+  const columns = mergeColumns(lists.filter((list) => items.some((item) => item.list === list.path)));
+  const keyOf = new Map(columns.flatMap((column) => [...column.paths.values()].map((path) => [path, column.key] as const)));
+  const placed = (item: TodoMine): string => dropped[item.path] ?? keyOf.get(item.column) ?? item.stage;
+  const listOf = (path: string) => items.find((item) => item.path === path)?.list ?? null;
+
+  const drop = async ({ source, destination, draggableId }: DropResult) => {
+    setDragList(null);
+    setLanding(null);
+    if (!destination || destination.droppableId === source.droppableId) return;
+    const list = listOf(draggableId);
+    const target = columns.find((column) => column.key === destination.droppableId)?.paths.get(list ?? '');
+    if (!target) return;
+    setDropped((shown) => ({ ...shown, [draggableId]: destination.droppableId }));
+    if (await run(`todo-move ${shq(draggableId)} --column ${shq(target)}`)) changed();
+    else setDropped({});
+  };
+
   return (
-    <BoardScroller>
-      {stages.map(({ title, stage }, index) => {
-        const cards = items.filter((item) => item.stage === stage);
-        return (
-          <ColumnFrame key={stage} index={index} title={title} count={cards.length}>
-            <Stack gap={6} px={8} pb={8} style={COLUMN_CARDS}>
-              {cards.length === 0 && <Text size='xs' c='dimmed' px={4}>Nothing here.</Text>}
-              {cards.map((item) => (
-                <TodoCard
-                  key={item.path}
-                  item={item}
-                  members={[]}
-                  expanded={expanded.has(item.path)}
-                  onExpand={(open) =>
-                    setExpanded((shown) => {
-                      const next = new Set(shown);
-                      if (open) next.add(item.path);
-                      else next.delete(item.path);
-                      return next;
-                    })}
-                  onChanged={changed}
-                  aside={
-                    <UnstyledButton onClick={() => onOpen(item.list)}>
-                      <Group gap={4} wrap='nowrap'>
-                        <TablerIcon name={item.group ? 'users' : 'list-check'} size={12} color='var(--mantine-color-dimmed)' />
-                        <Text size='xs' c='dimmed' truncate>{stage === 'doing' ? `${item.listTitle} · ${item.columnTitle}` : item.listTitle}</Text>
-                      </Group>
-                    </UnstyledButton>
-                  }
-                />
-              ))}
-            </Stack>
-          </ColumnFrame>
-        );
-      })}
-    </BoardScroller>
+    <DragDropContext
+      onBeforeCapture={({ draggableId }) => setDragList(listOf(draggableId))}
+      onDragStart={(start) => setLanding(landingOf(start.draggableId, start.source))}
+      onDragUpdate={(update) => setLanding(update.destination?.droppableId === update.source.droppableId ? null : landingOf(update.draggableId, update.destination))}
+      onDragEnd={(result) => void drop(result)}
+    >
+      <BoardScroller>
+        {columns.map((column, index) => {
+          const cards = items.filter((item) => placed(item) === column.key);
+          return (
+            <ColumnFrame key={column.key} index={index} title={column.title} count={cards.length}>
+              <Droppable droppableId={column.key} isDropDisabled={dragList !== null && !column.paths.has(dragList)}>
+                {(droppable) => (
+                  <Stack ref={droppable.innerRef} {...droppable.droppableProps} gap={0} px={8} pb={8} style={{ ...COLUMN_CARDS, position: 'relative' }}>
+                    {cards.map((item, at) => (
+                      <Draggable key={item.path} draggableId={item.path} index={at}>
+                        {(draggable, drag) => (
+                          <div ref={draggable.innerRef} {...draggable.draggableProps} style={{ ...draggable.draggableProps.style, paddingBottom: CARD_SPACE }}>
+                            <TodoCard
+                              item={item}
+                              members={[]}
+                              expanded={expanded.has(item.path)}
+                              onExpand={(open) =>
+                                setExpanded((shown) => {
+                                  const next = new Set(shown);
+                                  if (open) {
+                                    next.add(item.path);
+                                  } else next.delete(item.path);
+                                  return next;
+                                })}
+                              onChanged={changed}
+                              dragHandle={draggable.dragHandleProps}
+                              dragging={drag.isDragging}
+                              prefix={item.listTitle}
+                              onPrefix={() =>
+                                onOpen(item.list)}
+                            />
+                          </div>
+                        )}
+                      </Draggable>
+                    ))}
+                    {droppable.placeholder}
+                    {landing?.column === column.key && <LandingFrame landing={landing} />}
+                  </Stack>
+                )}
+              </Droppable>
+            </ColumnFrame>
+          );
+        })}
+      </BoardScroller>
+    </DragDropContext>
   );
 }

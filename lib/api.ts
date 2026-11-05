@@ -14,6 +14,8 @@ export type TodoList = {
   open: number;
   /** Items in every column, Done too; archived ones are not counted. */
   total: number;
+  /** Its columns in their order, as `todo-lists` answers it. */
+  columns?: TodoColumn[];
 };
 
 /**
