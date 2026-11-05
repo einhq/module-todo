@@ -9,6 +9,8 @@ WHICH COMMAND FOR TODOS:
 - What is on a list, what is left on it, what is in progress: todo-items with the list's path. It answers column by column; "what is left" is every column but Done.
 - "My tasks", what the user has to do, what is due: todo-mine, across every list.
 - One item's details: todo-item.
-- Adding to a list — "add milk to it", "lägg till mjölk": todo-add, one call an item, with --due as YYYY-MM-DD and --assignee a user name todo-members gives. A new list: todo-list-create, --group for a shared one.
+- Adding to a list — "add milk to it", "lägg till mjölk": todo-add, one call an item, with --due as YYYY-MM-DD and --assignee a user name todo-members gives.
+- Something for the user to do — "remind me to renew the passport", "påminn mig om att…": an item, never a list. todo-lists first, then todo-add on the list it belongs on, or on one of the user's own (~/todos) when none does.
+- A new list only when the user asks for a list: todo-list-create, --group for a shared one.
 - Ticking an item off — "milk is bought", "klar med": todo-done; --undo puts it back. Into another column: todo-move --column with the column's path. Putting done items away: todo-archive. Changing a title, description, due day or assignee: todo-set. What an item is about: todo-link.
 - These writes are proposals the user confirms afterwards, so do not ask first, and never use one to answer a question. An item to change is named by its path: read the list with todo-items first.
