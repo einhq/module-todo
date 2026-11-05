@@ -1,20 +1,14 @@
 import { Button } from '@mantine/core';
 import { CommandForm, EmptyState, type FormField, type FormValues, PageLoader } from '@ein/ui/components';
 import { useCommand, useSurface } from '@ein/ui/hooks';
-import { lightboxPathFromSearch, shq } from '@ein/ui/lib';
-import { noteOutsideEdit, pageLocation, pageShown } from '@ein/ui/signals';
+import { shq } from '@ein/ui/lib';
+import { noteOutsideEdit, shownNode } from '@ein/ui/signals';
 import { useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import type { TodoList } from '../../lib/api.ts';
 
 /** The shell's dialog takes its frame from here; as a page, this is its heading. */
 export const handle = { title: 'New todo item', icon: 'list-check', pattern: 'mixed', dialogSize: 'md', signedIn: true };
-
-/** The node the page behind the dialog is about, or the picture open full screen over it. */
-const shownNode = (): string | undefined => {
-  const location = pageLocation();
-  return (location ? lightboxPathFromSearch(location.search) : undefined) ?? pageShown()?.node;
-};
 
 /** The checkbox that links the item to what the page behind the dialog shows. */
 const ABOUT = 'about';
@@ -32,10 +26,11 @@ const fields = (lists: TodoList[], about: string | undefined): FormField[] => [
   ...(about ? [{ key: ABOUT, label: `About ${about.split('/').pop()}`, type: 'checkbox' as const, description: `Links the item to ${about}` }] : []),
 ];
 
-const build = (about: string | undefined) => (v: FormValues) => {
+const build = (about: string | undefined, stay: boolean) => (v: FormValues) => {
   let command = `todo-add ${shq(v.list)} ${shq(v.title.trim())}`;
   if (v.due?.trim()) command += ` --due ${shq(v.due.trim())}`;
   if (about && v[ABOUT] === 'true') command += ` --link ${shq(about)}`;
+  if (stay) return { command };
   return {
     command,
     navigateTo: () => {
@@ -50,6 +45,7 @@ const build = (about: string | undefined) => (v: FormValues) => {
  * `/todos/new`, in the dialog from the top bar's Create menu or as a page of its own: an item for
  * any list the reader can see, `?list=` the one picked to start with, else the first. Opened over a
  * page about a node — a picture, an album — or a picture full screen, it offers to link the item to it, ticked.
+ * Added, it opens the list, or with `?stay=1` (the Todo widget's) leaves the reader where they were.
  */
 export default function NewTodoItemPage() {
   const [params] = useSearchParams();
@@ -69,7 +65,7 @@ export default function NewTodoItemPage() {
     <CommandForm
       fields={fields(all, about)}
       initial={{ list: params.get('list') ?? all[0].path, ...(about ? { [ABOUT]: 'true' } : {}) }}
-      build={build(about)}
+      build={build(about, params.get('stay') === '1')}
       submitLabel='Add'
     />
   );

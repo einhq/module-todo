@@ -12,12 +12,14 @@ import {
 import { Dialog, DialogActions, EmptyState, HatField, Markdown, PageBar, PageLoader, ScrollBox, TablerIcon } from '@ein/ui/components';
 import { useCommand, usePhone } from '@ein/ui/hooks';
 import { plainMarkdown, shq } from '@ein/ui/lib';
-import { execCommand, notify, onOutsideEdit, openDialog } from '@ein/ui/signals';
+import { execCommand, loadUserConfig, notify, onOutsideEdit, openDialog, userConfigFlag } from '@ein/ui/signals';
+import { useSignals } from '@preact/signals-react/runtime';
 import { type CSSProperties, type FocusEvent, type FormEvent, type KeyboardEvent, type MouseEvent, type ReactNode, useEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import type { TodoColumn, TodoItem, TodoList, TodoListing, TodoMember, TodoMine } from '../../lib/api.ts';
 import { Face } from '../components/Face.tsx';
 import { LinkChip } from '../components/LinkChip.tsx';
+import { WIDGET_SETTING } from './widget.tsx';
 
 export const handle = { fullBleed: true, title: 'Todo', pattern: 'mixed' };
 
@@ -55,7 +57,13 @@ const OVERVIEW = 'overview';
  * to do on any list (`todo-mine`). A list, `?list=<path>`, is a board of its columns, whose cards
  * are dragged between them; `?item=<path>` opens one of its cards.
  */
+/** Turn the reader's Todo widget on or off, and have it come or go at once. */
+const setWidget = async (on: boolean) => {
+  if (await run(`config set ${WIDGET_SETTING} ${on}`)) await loadUserConfig();
+};
+
 export default function TodosPage() {
+  useSignals();
   const [params, setParams] = useSearchParams();
   const phone = usePhone();
   const listPath = params.get('list');
@@ -64,6 +72,7 @@ export default function TodosPage() {
   const open = (path: string | null) => setParams(path ? { list: path } : {});
   const [deleting, setDeleting] = useState<TodoList | null>(null);
   const [busy, setBusy] = useState(false);
+  const widgetOn = userConfigFlag(WIDGET_SETTING, false);
   useEffect(() => onOutsideEdit(() => void lists.refetch()), [lists.refetch]);
 
   // For good, with every item and column; what the items link to stays where it is.
@@ -103,6 +112,9 @@ export default function TodosPage() {
             items: [
               { label: 'New list', icon: 'list-check', onClick: () => openDialog('/todos/new-list') },
               ...(listPath ? [{ label: 'New column', icon: 'layout-columns', onClick: () => openDialog(`/todos/new-column?list=${encodeURIComponent(listPath)}`) }] : []),
+              widgetOn
+                ? { label: 'Hide the todo widget', icon: 'pinned-filled', color: 'teal', button: true, onClick: () => void setWidget(false) }
+                : { label: 'Show the todo widget', icon: 'pinned', button: true, onClick: () => void setWidget(true) },
             ],
           }}
           tabs={

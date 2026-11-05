@@ -200,6 +200,25 @@ Deno.test({ name: 'todo lists', sanitizeResources: false, sanitizeOps: false }, 
       assertEquals(await bo.execJson<string[]>('ls /groups/family/pictures'), ['beach.jpg']);
     });
 
+    await t.step('todo-about is the items not done that link to a path, on every list the reader sees', async () => {
+      const frame = await bo.execJson<TodoItem>(`todo-add ${shopping} 'Frame the picture' --link /groups/family/pictures/beach.jpg`);
+      const sort = await anna.execJson<TodoItem>(`todo-add ${shq(trip)} 'Sort the pictures' --link /groups/family/pictures`);
+      const titles = async (client: ShellClient, args: string) => (await client.execJson<TodoMine[]>(`todo-about ${args}`)).map((item) => item.title);
+      const about = await anna.execJson<TodoMine[]>('todo-about /groups/family/pictures/beach.jpg');
+      assertEquals(about.map((item) => [item.title, item.listTitle, item.columnTitle, item.stage]), [['Frame the picture', 'Shopping', 'Todo', 'todo']]);
+      // With no path, every item that links to anything; another's own list is not among them.
+      assertEquals(await titles(anna, ''), ['Sort the pictures', 'Frame the picture']);
+      assertEquals(await titles(bo, ''), ['Frame the picture']);
+      assertEquals(await titles(cleo, '/groups/family/pictures/beach.jpg'), []);
+      // A path is resolved where the reader is.
+      assertEquals((await anna.execJson<TodoMine[]>('cd /groups/family && todo-about pictures')).map((item) => item.title), ['Sort the pictures']);
+      const done = await bo.execJson<TodoItem>(`todo-done ${frame.path}`);
+      assertEquals(await titles(anna, '/groups/family/pictures/beach.jpg'), []);
+      assertEquals(await titles(anna, '--done /groups/family/pictures/beach.jpg'), ['Frame the picture']);
+      await bo.execString(`rm -r ${shq(done.path)}`);
+      await anna.execString(`rm -r ${shq(sort.path)}`);
+    });
+
     await t.step("todo-mine is what is given to one, and one's own lists' items given to nobody", async () => {
       await anna.execJson(`todo-add ${shq(trip)} 'Renew the passport' --due 2026-11-20`);
       await bo.execJson(`todo-add ${shopping} Apples --assignee anna --due 2026-11-10`);

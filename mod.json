@@ -3,7 +3,7 @@
   "version": "0.5.27",
   "description": "Todo lists, personal or shared within a group: items with a due date and someone to do them, shown on Home when they fall due",
   "license": "Elastic-2.0, with an added permission (LICENSE)",
-  "coreApi": "^0.12.2",
+  "coreApi": "^0.12.3",
   "exports": {
     "./api": "./lib/api.ts"
   },
@@ -19,7 +19,21 @@
       "/todos/new": "ui/pages/new-item.tsx",
       "/todos/new-list": "ui/pages/new-list.tsx",
       "/todos/new-column": "ui/pages/new-column.tsx",
-      "/todos/item": "ui/pages/edit-item.tsx"
+      "/todos/item": "ui/pages/edit-item.tsx",
+      "/todo-widget": "ui/pages/widget.tsx"
     }
+  },
+  "config": {
+    "options": [
+      {
+        "key": "CFG_USER_TODO_WIDGET",
+        "scope": "user",
+        "type": "boolean",
+        "default": "false",
+        "label": "Todo widget",
+        "description": "A button floating over every page, which you can drag anywhere: it counts the todos about what is on screen — the picture in the lightbox, an album, a person — and lists them, or adds one about it.",
+        "group": "Todo"
+      }
+    ]
   }
 }

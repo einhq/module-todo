@@ -21,7 +21,7 @@ import { basename, dirname, resolve } from '@std/path';
 import { parse as parseYaml, stringify as stringifyYaml } from '@std/yaml';
 import { ADMIN_ACCESS, type Command, NodeAlreadyExistsError, type NodeAttrs, type NodeChildEntry, NodeNotFoundError, SYSTEM_TIME_ZONE, type UserAttrs } from '@ein/client';
 import { GROUP_HOMES_PATH, groupHomePath, GROUPS_PATH, USERS_PATH } from '@ein/paths';
-import type { TodoColumn, TodoItem, TodoLink, TodoList, TodoMember } from './api.ts';
+import type { TodoColumn, TodoItem, TodoLink, TodoList, TodoMember, TodoMine } from './api.ts';
 
 /** The folder of lists in a home, a person's or a group's. */
 const TODOS_DIR = 'todos';
@@ -347,6 +347,24 @@ export const allLists = async (cmd: Command, read: 'none' | 'open' | 'all' = 'no
     const shown = read === 'all' ? columns : read === 'open' ? columns.filter((column) => column.stage !== 'done') : [];
     return { list: listOf(path, open, total), columns, items: await readColumns(cmd, path, shown, listed) };
   }));
+};
+
+/**
+ * The items of every list the caller can see that link to one of `paths`, each resolved; with none,
+ * every item that links to anything. Not done, or with `done` those in Done too; list by list, in
+ * their columns' order.
+ */
+export const aboutItems = async (cmd: Command, paths: string[], done: boolean): Promise<TodoMine[]> => {
+  const targets = new Set(paths.map((path) => resolve(cmd.cwd, path)));
+  const about: TodoMine[] = [];
+  for (const { list, columns, items } of await allLists(cmd, done ? 'all' : 'open')) {
+    for (const item of items) {
+      if (!item.links?.some((link) => targets.size === 0 || targets.has(link.target))) continue;
+      const column = columns.find((each) => each.path === item.column)!;
+      about.push({ ...item, listTitle: list.title, ...(list.group ? { group: list.group } : {}), columnTitle: column.title, stage: column.stage });
+    }
+  }
+  return about;
 };
 
 /** The list `arg` names, a path; a `TodoError` when it is not a list the caller can read. */

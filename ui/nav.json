@@ -2,6 +2,9 @@
   "sidebar": [
     { "id": "todo.lists", "section": "main", "label": "Todo", "icon": "list-check", "to": "/todos", "order": 35, "signedIn": true }
   ],
+  "panels": [
+    { "id": "todo.widget", "slot": "shell.float", "label": "Todo widget", "icon": "list-check", "route": "/todo-widget", "signedIn": true }
+  ],
   "topbar": [
     {
       "id": "todo.new-item",

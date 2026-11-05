@@ -1,0 +1,33 @@
+#!ts
+/** todo-about — the items about something: those that link to a path, or to anything at all. */
+import type { CmdReturn, Command } from '@ein/client';
+import { collectUnknownFlags, parseArgs, reportUnknownFlags } from '@ein/client';
+import type { TodoMine } from '@todo/api';
+import { aboutItems, fail, itemLine } from '@todo/store';
+
+const todoAbout = async (cmd: Command): CmdReturn => {
+  const unknown: string[] = [];
+  const flags = parseArgs(cmd.args, { boolean: ['done'], unknown: collectUnknownFlags(unknown) });
+  if (await reportUnknownFlags(cmd, unknown)) return 1;
+  try {
+    const about = await aboutItems(cmd, flags._.map(String), flags.done === true);
+    if (cmd.json) await cmd.writeJSON(about satisfies TodoMine[]);
+    else for (const item of about) await cmd.writeLn(`${itemLine(item)}  (${item.listTitle}, ${item.columnTitle})`);
+    return 0;
+  } catch (error) {
+    return await fail(cmd, 'todo-about', error);
+  }
+};
+
+todoAbout.spec = {
+  name: 'todo-about',
+  effect: 'read' as const,
+  description:
+    'List the items not done, on every list you can see, that are about a path: that link to it, such as a picture, an album or a person. With no path, every item that links to anything; with --done the done ones too',
+  args: [{ name: 'path', type: 'path' as const, description: 'what they are about', variadic: true, optional: true }],
+  flags: [{ name: 'done', type: 'bool' as const, description: "the done ones as well, those in a list's done/ (not archived/)" }],
+  examples: ['todo-about /albums/Summer/beach.jpg', 'todo-about'],
+  returns: "One entry per item, as todo-items gives them, with listTitle, group, columnTitle and stage (todo, doing or done), list by list in their columns' order.",
+};
+
+export default todoAbout;

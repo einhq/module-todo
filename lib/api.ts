@@ -80,7 +80,7 @@ export type TodoLink = {
  */
 export type TodoListing = { list: TodoList; columns: TodoColumn[]; items: TodoItem[] };
 
-/** `todo-mine`: an item, with the list and the column it is in. */
+/** `todo-mine` and `todo-about`: an item, with the list and the column it is in. */
 export type TodoMine = TodoItem & { listTitle: string; group?: string; columnTitle: string; stage: TodoColumn['stage'] };
 
 /** `todo-members`: someone an item of the list may be given to. */
