@@ -18,7 +18,7 @@ const todoItems = async (cmd: Command): CmdReturn => {
 todoItems.spec = {
   name: 'todo-items',
   effect: 'read' as const,
-  description: 'Show a todo list and its items: the open ones, then those in its done/, each in the order they were added',
+  description: 'Show a todo list and its items: the open ones, then those in its done/, each in their order',
   args: [{ name: 'list', type: 'path' as const, description: 'the list, by its path' }],
   flags: [],
   examples: ['todo-items /groups/users/todos/Shopping'],

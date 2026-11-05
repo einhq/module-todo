@@ -15,7 +15,7 @@ const todoMine = async (cmd: Command): CmdReturn => {
         }
       }
     }
-    // Soonest due first; those due on no day after them, in the order they were added.
+    // Soonest due first; those due on no day after them, in their lists' order.
     mine.sort((a, b) => (a.due ?? '9999').localeCompare(b.due ?? '9999') || (a.path < b.path ? -1 : 1));
     if (cmd.json) await cmd.writeJSON(mine satisfies TodoMine[]);
     else for (const item of mine) await cmd.writeLn(`${itemLine(item)}  (${item.listTitle})`);

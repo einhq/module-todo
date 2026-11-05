@@ -51,7 +51,7 @@ export type TodoLink = {
   mimetype?: string;
 };
 
-/** `todo-items`: the list and its items, the open ones and then the done ones, each in the order they were added. */
+/** `todo-items`: the list and its items, the open ones and then the done ones, each in their order: by `order`, then as they were added. */
 export type TodoListing = { list: TodoList; items: TodoItem[] };
 
 /** `todo-mine`: an item, with the list it is in. */
