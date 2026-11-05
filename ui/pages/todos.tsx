@@ -1,7 +1,15 @@
-import { ActionIcon, Box, Button, Checkbox, Group, Menu, Paper, Popover, Stack, Tabs, Text, TextInput, Tooltip } from '@mantine/core';
+import { ActionIcon, Badge, Box, Button, Checkbox, Group, Menu, Paper, Popover, Stack, Tabs, Text, TextInput, Tooltip } from '@mantine/core';
 import { DatePicker } from '@mantine/dates';
-import { DragDropContext, Draggable, type DraggableLocation, type DraggableProvidedDragHandleProps, Droppable, type DropResult } from '@hello-pangea/dnd';
-import { Dialog, DialogActions, EmptyState, HatField, Markdown, PageBar, PageLoader, TablerIcon } from '@ein/ui/components';
+import {
+  DragDropContext,
+  Draggable,
+  type DraggableLocation,
+  type DraggableProvidedDragHandleProps,
+  Droppable,
+  type DroppableProvided,
+  type DropResult,
+} from '@hello-pangea/dnd';
+import { Dialog, DialogActions, EmptyState, HatField, Markdown, PageBar, PageLoader, ScrollBox, TablerIcon } from '@ein/ui/components';
 import { useCommand, usePhone } from '@ein/ui/hooks';
 import { plainMarkdown, shq } from '@ein/ui/lib';
 import { execCommand, notify, onOutsideEdit, openDialog } from '@ein/ui/signals';
@@ -285,6 +293,7 @@ function TodoCard({ item, members, expanded, onExpand, highlighted, onChanged, d
   const [dueOpen, setDueOpen] = useState(false);
   const overdue = !item.done && item.due !== undefined && item.due < today();
   const tools = phone || hovered || focused || dueOpen;
+  const tint = ageColor(item);
 
   useEffect(() => {
     if (highlighted) ref.current?.scrollIntoView({ block: 'nearest' });
@@ -327,8 +336,16 @@ function TodoCard({ item, members, expanded, onExpand, highlighted, onChanged, d
       }}
     >
       {/* Top-aligned, so a title of several lines keeps its buttons by its first line; the margins centre that line, and the box, on the face (26px). */}
-      <Group gap={6} wrap='nowrap' align='flex-start' px='xs' py={6} title={addedLabel(item)} style={{ ...CARD_BAND, filter: hovered ? 'brightness(1.3)' : undefined }}>
-        <HatField pattern='neutral' kind='foot' color={ageColor(item)} />
+      <Group
+        gap={6}
+        wrap='nowrap'
+        align='flex-start'
+        px='xs'
+        py={6}
+        title={addedLabel(item)}
+        style={{ ...CARD_BAND, background: tint.ground, filter: hovered ? 'brightness(1.3)' : undefined }}
+      >
+        <HatField pattern='neutral' kind='foot' color={tint.tiles} />
         {onSelect && <Checkbox mt={5} size='xs' checked={selected ?? false} onChange={(event) => onSelect(event.currentTarget.checked)} aria-label={`Pick ${item.title}`} />}
         <Text
           size='md'
@@ -399,12 +416,11 @@ const CARD_EDGE_HIGHLIGHTED = 'var(--mantine-primary-color-filled)';
 /** A card's border while the pointer is over it, which also casts a shadow and brightens its heading. */
 const CARD_EDGE_HOVERED = 'var(--mantine-color-dark-2)';
 
-/** The band a card's heading stands on: the raised surface, lighter than the board, its hat field behind the heading. */
+/** The band a card's heading stands on, in the card's age colour (`ageColor`), its hat field behind the heading. */
 const CARD_BAND = {
   position: 'relative',
   overflow: 'hidden',
   isolation: 'isolate',
-  background: 'var(--mrx-surface-raised)',
   transition: 'filter 120ms ease',
   // A dark edge under the heading's light text and icons, so they read over any tile.
   textShadow: '0 1px 2px rgb(0 0 0 / .9)',
@@ -417,14 +433,16 @@ const CARD_BAND_ICON_SHADOW = 'drop-shadow(0 1px 1.5px rgb(0 0 0 / .85))';
 const AGE_SPAN = 28;
 
 /**
- * The tint of a card's band by how long it has been on the board: green when added today, through
- * yellow, to red at `AGE_SPAN` days and after. A done card, or one whose file says nothing of when
- * it was made, is grey. All are dark, so the tint stays behind the title rather than over it.
+ * The colour of a card's band by how long it has been on the board: green when added today, through
+ * yellow, to red at `AGE_SPAN` days and after; a done card, or one whose file says nothing of when it
+ * was made, grey. The band is the dark `ground`, solid, so the title reads on it, and its tiles a
+ * lighter shade of the same hue.
  */
-const ageColor = (item: TodoItem): string => {
-  if (item.done || !item.added) return 'hsl(220 8% 16%)';
+const ageColor = (item: TodoItem): { ground: string; tiles: string } => {
+  if (item.done || !item.added) return { ground: 'hsl(220 8% 17%)', tiles: 'hsl(220 8% 42%)' };
   const days = Math.max(0, (Date.now() - Date.parse(item.added)) / 86_400_000);
-  return `hsl(${Math.round(130 * (1 - Math.min(1, days / AGE_SPAN)))} 50% 14%)`;
+  const hue = Math.round(130 * (1 - Math.min(1, days / AGE_SPAN)));
+  return { ground: `hsl(${hue} 45% 15%)`, tiles: `hsl(${hue} 55% 42%)` };
 };
 
 /** When a card was added, in words, for its band's hover. */
@@ -463,29 +481,37 @@ function BoardScroller({ children }: { children: ReactNode }) {
 const COLUMN_RULE = '1px solid var(--mantine-color-default-border)';
 
 /**
- * A column: its heading over its cards and a `footer` under them, ruled off from the column before
- * it (`index`). Side by side the columns share the board's width, none narrower than 260px and
- * none wider for what is in it (a card dropped in leaves every column as wide as it was), and
- * each scrolls its own cards with the footer in sight under them; stacked on a phone each is as
- * tall as its cards.
+ * A column: its heading — the title, how many cards it holds, `edit` beside them (on a desktop while
+ * the heading is hovered or what `edit` opens is open, `editing`), `controls` at the right — a line
+ * under it short of the column's edges, its cards, and a `footer` under them. It is ruled off from
+ * the column before it (`index`). Side by side the columns share the board's width, none narrower
+ * than 260px and none wider for what is in it (a card dropped in leaves every column as wide as it
+ * was); stacked on a phone each is as tall as its cards.
  */
-function ColumnFrame({ index, title, count, controls, footer, children }: {
+function ColumnFrame({ index, title, count, edit, editing, controls, footer, children }: {
   index: number;
   title: string;
   count: number;
+  edit?: ReactNode;
+  editing?: boolean;
   controls?: ReactNode;
   footer?: ReactNode;
   children: ReactNode;
 }) {
   const phone = usePhone();
+  const [hovered, setHovered] = useState(false);
   const rule = index === 0 ? {} : phone ? { borderTop: COLUMN_RULE } : { borderLeft: COLUMN_RULE };
+  const editShown = phone || hovered || editing;
   return (
     <Box style={{ display: 'flex', flexDirection: 'column', minHeight: 0, ...rule, ...(phone ? {} : { flex: '1 0 260px', minWidth: 0 }) }}>
-      <Group gap='xs' wrap='nowrap' px='sm' py={8} style={{ flex: 'none' }}>
-        <Text fw={600} size='sm' truncate style={{ flex: 1, minWidth: 0 }}>{title}</Text>
-        <Text size='xs' c='dimmed'>{count}</Text>
+      <Group gap={6} wrap='nowrap' px='sm' py={8} style={{ flex: 'none' }} onMouseEnter={() => setHovered(true)} onMouseLeave={() => setHovered(false)}>
+        <Text fw={600} size='sm' truncate style={{ minWidth: 0 }}>{title}</Text>
+        <Badge size='sm' variant='light' color='gray' radius='sm' style={{ flex: 'none' }}>{count}</Badge>
+        {edit && <Box style={{ display: 'flex', opacity: editShown ? 1 : 0, pointerEvents: editShown ? undefined : 'none', transition: 'opacity 120ms ease' }}>{edit}</Box>}
+        <Box style={{ flex: 1 }} />
         {controls}
       </Group>
+      <Box mx='sm' style={{ flex: 'none', borderBottom: COLUMN_RULE }} />
       {children}
       {footer && <Box px={8} pb={8} style={{ flex: 'none' }}>{footer}</Box>}
     </Box>
@@ -493,12 +519,20 @@ function ColumnFrame({ index, title, count, controls, footer, children }: {
 }
 
 /**
- * The style of a column's cards: side by side they take what the heading and footer leave and
- * scroll there, the scrollbar's room kept so that a card or frame dropped in does not narrow them;
- * stacked, they take their own height.
+ * A column's cards, the drop target `droppable` gives them: side by side a box that takes what the
+ * heading and footer leave and scrolls with the app's own scrollbar over its edge, which takes no
+ * width and so reflows nothing as it comes and goes; stacked on a phone, as tall as the cards.
  */
-const columnCards = (phone: boolean): CSSProperties =>
-  phone ? { position: 'relative', minHeight: 48 } : { flex: 1, minHeight: 0, overflowY: 'auto', scrollbarGutter: 'stable', position: 'relative' };
+function ColumnCards({ droppable, children }: { droppable: DroppableProvided; children: ReactNode }) {
+  const phone = usePhone();
+  const style: CSSProperties = { position: 'relative', padding: 8, ...(phone ? { minHeight: 48 } : {}) };
+  if (phone) return <div ref={droppable.innerRef} {...droppable.droppableProps} style={style}>{children}</div>;
+  return (
+    <ScrollBox frameStyle={{ flex: 1, minHeight: 0 }} viewportRef={droppable.innerRef} {...droppable.droppableProps} style={style}>
+      {children}
+    </ScrollBox>
+  );
+}
 
 /** One of the phone's panel's targets: a column by name; `disabled` takes no drop. */
 type PanelTarget = { id: string; title: string; disabled?: boolean };
@@ -592,8 +626,16 @@ function DropPanel({ targets, over }: { targets: PanelTarget[]; over: string | n
  * `order` attr in the new order, and Delete, which takes the folder away once no card is left in it;
  * Done and Todo stay where they are.
  */
-function ColumnMenu({ column, columns, count, onChanged }: { column: TodoColumn; columns: TodoColumn[]; count: number; onChanged: () => void }) {
+function ColumnMenu({ column, columns, count, onChanged, onOpen }: {
+  column: TodoColumn;
+  columns: TodoColumn[];
+  count: number;
+  onChanged: () => void;
+  /** Told the column's path when its popover opens and null when it closes, so the pencil stays in sight meanwhile. */
+  onOpen?: (path: string | null) => void;
+}) {
   const [opened, setOpened] = useState(false);
+  useEffect(() => onOpen?.(opened ? column.path : null), [opened]);
   // The list's own columns, between Todo and Done, which are all that move.
   const own = columns.filter((each) => each.stage === 'doing');
   const at = own.findIndex((each) => each.path === column.path);
@@ -774,6 +816,8 @@ function ListBoard({ path, highlight }: { path: string; highlight: string | null
   // Whether a card is lifted on a phone, which brings up the panel of columns to drop it on.
   const [lifted, setLifted] = useState(false);
   const { over: overPanel, overRef: panelRef } = usePanelTarget(lifted);
+  // The column whose pencil's popover is open.
+  const [editing, setEditing] = useState<string | null>(null);
   useEffect(() => setDropped(null), [listing.data]);
   useEffect(() => onOutsideEdit(() => void listing.refetch()), [listing.refetch]);
 
@@ -875,24 +919,14 @@ function ListBoard({ path, highlight }: { path: string; highlight: string | null
               index={index}
               title={column.title}
               count={cards.length}
-              controls={
-                <>
-                  {column.stage === 'done' && doneControls}
-                  {column.stage !== 'todo' && <ColumnMenu column={column} columns={columns} count={cards.length} onChanged={changed} />}
-                </>
-              }
+              edit={column.stage !== 'todo' && <ColumnMenu column={column} columns={columns} count={cards.length} onChanged={changed} onOpen={setEditing} />}
+              editing={editing === column.path}
+              controls={column.stage === 'done' && doneControls}
               footer={column.stage === 'todo' && <AddCard list={list.path} onAdded={changed} />}
             >
               <Droppable droppableId={column.path}>
                 {(droppable) => (
-                  <Stack
-                    ref={droppable.innerRef}
-                    {...droppable.droppableProps}
-                    gap={0}
-                    px={8}
-                    pb={8}
-                    style={columnCards(phone)}
-                  >
+                  <ColumnCards droppable={droppable}>
                     {cards.map((item, index) => (
                       <Draggable key={item.path} draggableId={item.path} index={index}>
                         {(draggable, drag) => (
@@ -921,7 +955,7 @@ function ListBoard({ path, highlight }: { path: string; highlight: string | null
                     ))}
                     {droppable.placeholder}
                     {landing?.column === column.path && <LandingFrame landing={landing} />}
-                  </Stack>
+                  </ColumnCards>
                 )}
               </Droppable>
             </ColumnFrame>
@@ -1022,7 +1056,7 @@ function OverviewBoard({ lists, onOpen }: { lists: TodoList[]; onOpen: (path: st
             <ColumnFrame key={column.key} index={index} title={column.title} count={cards.length}>
               <Droppable droppableId={column.key} isDropDisabled={dragList !== null && !column.paths.has(dragList)}>
                 {(droppable) => (
-                  <Stack ref={droppable.innerRef} {...droppable.droppableProps} gap={0} px={8} pb={8} style={columnCards(phone)}>
+                  <ColumnCards droppable={droppable}>
                     {cards.map((item, at) => (
                       <Draggable key={item.path} draggableId={item.path} index={at}>
                         {(draggable, drag) => (
@@ -1052,7 +1086,7 @@ function OverviewBoard({ lists, onOpen }: { lists: TodoList[]; onOpen: (path: st
                     ))}
                     {droppable.placeholder}
                     {landing?.column === column.key && <LandingFrame landing={landing} />}
-                  </Stack>
+                  </ColumnCards>
                 )}
               </Droppable>
             </ColumnFrame>
