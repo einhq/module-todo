@@ -219,7 +219,7 @@ function AssigneeButton({ item, members, onChanged }: { item: TodoItem; members:
   const give = async (username: string | null) => {
     if (await run(`todo-set ${shq(item.path)} ${username ? `--assignee ${shq(username)}` : '--no-assignee'}`)) onChanged();
   };
-  const face = item.assignee ? <Face username={item.assignee} members={members} /> : <TablerIcon name='user-plus' size={16} color='var(--mantine-color-dimmed)' />;
+  const face = item.assignee ? <Face username={item.assignee} members={members} /> : <TablerIcon name='user-plus' size={16} color='white' />;
   if (members.length === 0) return null;
   return (
     <Menu shadow='md' position='bottom-end' withinPortal>
@@ -231,7 +231,7 @@ function AssigneeButton({ item, members, onChanged }: { item: TodoItem; members:
             radius='xl'
             size={26}
             aria-label={who ? `Assigned to ${who}` : 'Assign to'}
-            style={item.assignee ? undefined : { border: '1px dashed var(--mantine-color-default-border)' }}
+            style={item.assignee ? undefined : { border: '1px dashed rgb(255 255 255 / .8)' }}
           >
             {face}
           </ActionIcon>
@@ -346,6 +346,7 @@ function TodoCard({ item, members, expanded, onExpand, highlighted, onChanged, d
         style={{ ...CARD_BAND, background: tint.ground, filter: hovered ? 'brightness(1.3)' : undefined }}
       >
         <HatField pattern='neutral' kind='foot' color={tint.tiles} />
+        <Box aria-hidden style={CARD_BAND_SHADE} />
         {onSelect && <Checkbox mt={5} size='xs' checked={selected ?? false} onChange={(event) => onSelect(event.currentTarget.checked)} aria-label={`Pick ${item.title}`} />}
         <Text
           size='md'
@@ -424,6 +425,18 @@ const CARD_BAND = {
   transition: 'filter 120ms ease',
   // A dark edge under the heading's light text and icons, so they read over any tile.
   textShadow: '0 1px 2px rgb(0 0 0 / .9)',
+} as const;
+
+/**
+ * A shade over a card's band, ground and tiles alike, behind the heading: near black at the left,
+ * where the title is, giving way to the band's own colour towards the middle.
+ */
+const CARD_BAND_SHADE = {
+  position: 'absolute',
+  inset: 0,
+  zIndex: -1,
+  pointerEvents: 'none',
+  background: 'linear-gradient(90deg, rgb(0 0 0 / .8), rgb(0 0 0 / .35) 30%, transparent 55%)',
 } as const;
 
 /** The same dark edge for the heading's buttons and faces, which a text shadow does not reach. */
