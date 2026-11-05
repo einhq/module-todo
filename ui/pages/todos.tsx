@@ -1,7 +1,7 @@
 import { ActionIcon, Box, Button, Checkbox, Group, Menu, Paper, Popover, Stack, Tabs, Text, TextInput, Tooltip, UnstyledButton } from '@mantine/core';
 import { DatePicker } from '@mantine/dates';
 import { DragDropContext, Draggable, type DraggableLocation, type DraggableProvidedDragHandleProps, Droppable, type DropResult } from '@hello-pangea/dnd';
-import { EmptyState, Markdown, PageBar, PageLoader, TablerIcon } from '@ein/ui/components';
+import { EmptyState, HatField, Markdown, PageBar, PageLoader, TablerIcon } from '@ein/ui/components';
 import { useCommand, usePhone } from '@ein/ui/hooks';
 import { plainMarkdown, shq } from '@ein/ui/lib';
 import { execCommand, notify, onOutsideEdit, openDialog } from '@ein/ui/signals';
@@ -256,7 +256,7 @@ function TodoCard({ item, members, expanded, onExpand, highlighted, onChanged, d
       ref={ref}
       withBorder
       radius='sm'
-      p='xs'
+      p={0}
       shadow={dragging ? 'md' : undefined}
       bg='var(--mrx-surface-base)'
       {...dragHandle}
@@ -269,10 +269,10 @@ function TodoCard({ item, members, expanded, onExpand, highlighted, onChanged, d
       onKeyDown={(event: KeyboardEvent<HTMLDivElement>) => {
         if (event.key === 'Enter' && event.target === event.currentTarget) edit();
       }}
-      style={{ cursor: dragHandle ? 'grab' : undefined, borderColor: highlighted ? 'var(--mantine-primary-color-filled)' : undefined }}
+      style={{ cursor: dragHandle ? 'grab' : undefined, position: 'relative', overflow: 'hidden', borderColor: highlighted ? CARD_EDGE_HIGHLIGHTED : CARD_EDGE }}
     >
       {/* Top-aligned, so a title of several lines keeps its buttons by its first line; the margins centre that line, and the box, on the face (26px). */}
-      <Group gap={6} wrap='nowrap' align='flex-start'>
+      <Group gap={6} wrap='nowrap' align='flex-start' px='xs' py={6} bg={highlighted ? CARD_EDGE_HIGHLIGHTED : CARD_EDGE}>
         {onSelect && <Checkbox mt={5} size='xs' checked={selected ?? false} onChange={(event) => onSelect(event.currentTarget.checked)} aria-label={`Pick ${item.title}`} />}
         <Text
           size='sm'
@@ -298,27 +298,55 @@ function TodoCard({ item, members, expanded, onExpand, highlighted, onChanged, d
           <AssigneeButton item={item} members={members} onChanged={onChanged} />
         </Group>
       </Group>
-      {item.description && (
-        // Not a button: a drag cannot start on one.
-        <Box mt={4} onClick={toggle} style={{ cursor: 'pointer' }} aria-expanded={expanded}>
-          {expanded
-            ? (
-              <Box fz='sm'>
-                <Markdown content={item.description} breaks />
+      {(item.description || aside || item.links) && (
+        <>
+          <Box style={CARD_FOOT}>
+            <HatField pattern='neutral' kind='foot' />
+          </Box>
+          <Box px='xs' pt={6} pb='xs' style={{ position: 'relative' }}>
+            {item.description && (
+              // Not a button: a drag cannot start on one.
+              <Box onClick={toggle} style={{ cursor: 'pointer' }} aria-expanded={expanded}>
+                {expanded
+                  ? (
+                    <Box fz='sm'>
+                      <Markdown content={item.description} breaks />
+                    </Box>
+                  )
+                  : <Text size='xs' c='dimmed' lineClamp={1}>{firstLine(item.description)}</Text>}
               </Box>
-            )
-            : <Text size='xs' c='dimmed' lineClamp={1}>{firstLine(item.description)}</Text>}
-        </Box>
-      )}
-      {aside && <Group gap={6} mt={6} wrap='wrap'>{aside}</Group>}
-      {item.links && (
-        <Group gap={6} mt={6}>
-          {item.links.map((link) => <LinkChip key={link.path} link={link} />)}
-        </Group>
+            )}
+            {aside && <Group gap={6} mt={item.description ? 6 : 0} wrap='wrap'>{aside}</Group>}
+            {item.links && (
+              <Group gap={6} mt={item.description || aside ? 6 : 0}>
+                {item.links.map((link) => <LinkChip key={link.path} link={link} />)}
+              </Group>
+            )}
+          </Box>
+        </>
       )}
     </Paper>
   );
 }
+
+/** A card's border, and the band its heading stands on. */
+const CARD_EDGE = 'var(--mantine-color-default-border)';
+const CARD_EDGE_HIGHLIGHTED = 'var(--mantine-primary-color-filled)';
+
+/**
+ * The grey tiles fading up from a card's foot, as the sidebar's do, lower: behind what the card
+ * says under its heading, the field faint and masked away towards the top.
+ */
+const CARD_FOOT = {
+  position: 'absolute',
+  inset: 'auto 0 0',
+  height: 48,
+  overflow: 'hidden',
+  pointerEvents: 'none',
+  opacity: .4,
+  WebkitMaskImage: 'linear-gradient(to top, #000, transparent 85%)',
+  maskImage: 'linear-gradient(to top, #000, transparent 85%)',
+} as const;
 
 /** A description's first line as plain text, with an ellipsis when more lines follow it; one cut short gets its own from the clamp. */
 const firstLine = (description: string): string => {
