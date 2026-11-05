@@ -464,7 +464,8 @@ const COLUMN_RULE = '1px solid var(--mantine-color-default-border)';
 
 /**
  * A column: its heading over its cards and a `footer` under them, ruled off from the column before
- * it (`index`). Side by side the columns share the board's width, none narrower than 260px, and
+ * it (`index`). Side by side the columns share the board's width, none narrower than 260px and
+ * none wider for what is in it (a card dropped in leaves every column as wide as it was), and
  * each scrolls its own cards with the footer in sight under them; stacked on a phone each is as
  * tall as its cards.
  */
@@ -479,7 +480,7 @@ function ColumnFrame({ index, title, count, controls, footer, children }: {
   const phone = usePhone();
   const rule = index === 0 ? {} : phone ? { borderTop: COLUMN_RULE } : { borderLeft: COLUMN_RULE };
   return (
-    <Box style={{ display: 'flex', flexDirection: 'column', minHeight: 0, ...rule, ...(phone ? {} : { flex: '1 0 260px' }) }}>
+    <Box style={{ display: 'flex', flexDirection: 'column', minHeight: 0, ...rule, ...(phone ? {} : { flex: '1 0 260px', minWidth: 0 }) }}>
       <Group gap='xs' wrap='nowrap' px='sm' py={8} style={{ flex: 'none' }}>
         <Text fw={600} size='sm' truncate style={{ flex: 1, minWidth: 0 }}>{title}</Text>
         <Text size='xs' c='dimmed'>{count}</Text>
