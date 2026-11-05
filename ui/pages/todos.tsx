@@ -1,33 +1,14 @@
-import {
-  ActionIcon,
-  Avatar,
-  Badge,
-  Box,
-  Button,
-  Checkbox,
-  CloseButton,
-  Group,
-  Menu,
-  Paper,
-  Popover,
-  Select,
-  Stack,
-  Tabs,
-  Text,
-  Textarea,
-  TextInput,
-  Tooltip,
-  UnstyledButton,
-} from '@mantine/core';
+import { ActionIcon, Avatar, Badge, Box, Button, Checkbox, Group, Menu, Paper, Popover, Stack, Tabs, Text, TextInput, Tooltip, UnstyledButton } from '@mantine/core';
 import { DatePicker } from '@mantine/dates';
 import { DragDropContext, Draggable, type DraggableProvidedDragHandleProps, Droppable, type DropResult } from '@hello-pangea/dnd';
 import { CoverAvatar, EmptyState, Markdown, PageBar, PageLoader, TablerIcon } from '@ein/ui/components';
 import { useCommand, usePhone } from '@ein/ui/hooks';
-import { fileUrl, lightboxRoute, shq, thumbnailUrl } from '@ein/ui/lib';
-import { execCommand, notify, openDialog, openFullscreen, openRoute } from '@ein/ui/signals';
+import { shq } from '@ein/ui/lib';
+import { execCommand, notify, onOutsideEdit, openDialog } from '@ein/ui/signals';
 import { type FormEvent, type KeyboardEvent, type ReactNode, useEffect, useRef, useState } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
-import type { TodoColumn, TodoItem, TodoLink, TodoList, TodoListing, TodoMember, TodoMine } from '../../lib/api.ts';
+import { useSearchParams } from 'react-router-dom';
+import type { TodoColumn, TodoItem, TodoList, TodoListing, TodoMember, TodoMine } from '../../lib/api.ts';
+import { LinkChip } from '../components/LinkChip.tsx';
 
 export const handle = { fullBleed: true, title: 'Todo', pattern: 'mixed' };
 
@@ -62,9 +43,6 @@ const BAR_BUTTON = { size: 36, icon: 22 };
 
 /** The tab of what is the reader's on every list; every other tab's value is a list's path. */
 const OVERVIEW = 'overview';
-
-/** The folders a list keeps for itself, which are no column the reader can add. */
-const RESERVED_COLUMNS = ['done', 'archived'];
 
 /**
  * `/todos`: a tab in the bar for each of the reader's lists, after Overview, what is the reader's
@@ -101,11 +79,26 @@ export default function TodosPage() {
           title='Todo'
           pattern='mixed'
           controls={
-            <Tooltip label='New list'>
-              <ActionIcon variant='subtle' size={phone ? BAR_BUTTON.size : undefined} onClick={() => openDialog('/todos/new-list')} aria-label='New list'>
-                <TablerIcon name='plus' size={phone ? BAR_BUTTON.icon : 17} />
-              </ActionIcon>
-            </Tooltip>
+            <Menu shadow='md' position='bottom-end' withinPortal>
+              <Menu.Target>
+                <Tooltip label='More'>
+                  <ActionIcon variant='subtle' size={phone ? BAR_BUTTON.size : undefined} aria-label='More'>
+                    <TablerIcon name='dots' size={phone ? BAR_BUTTON.icon : 17} />
+                  </ActionIcon>
+                </Tooltip>
+              </Menu.Target>
+              <Menu.Dropdown>
+                <Menu.Item leftSection={<TablerIcon name='list-check' size={16} />} onClick={() => openDialog('/todos/new-list')}>New list</Menu.Item>
+                {listPath && (
+                  <Menu.Item
+                    leftSection={<TablerIcon name='layout-columns' size={16} />}
+                    onClick={() => openDialog(`/todos/new-column?list=${encodeURIComponent(listPath)}`)}
+                  >
+                    New column
+                  </Menu.Item>
+                )}
+              </Menu.Dropdown>
+            </Menu>
           }
           tabs={
             <Tabs.List>
@@ -129,62 +122,6 @@ export default function TodosPage() {
         </Box>
       </Tabs>
     </Paper>
-  );
-}
-
-/** Whether a link points at a picture or a video, which the lightbox shows and which has a thumbnail. */
-const isMedia = (link: TodoLink): boolean => link.type === 'file' && /^(image|video)\//.test(link.mimetype ?? '');
-
-/** The glyph for what a link points at. */
-const linkIcon = (link: TodoLink): string => {
-  if (!link.type) return 'link-off';
-  if (isMedia(link)) return 'photo';
-  return ({ album: 'library-photo', directory: 'folder', person: 'user', location: 'map-pin' } as Record<string, string>)[link.type] ?? 'file';
-};
-
-/**
- * What an item is about: a thumbnail or a glyph, and the link's name. It opens what it points at —
- * the page a module gives its type, the lightbox for a picture, or the file itself — and with
- * `onRemove` has a cross that takes the link away.
- */
-function LinkChip({ link, onRemove }: { link: TodoLink; onRemove?: () => void }) {
-  const navigate = useNavigate();
-  const [broken, setBroken] = useState(false);
-  const open = () => {
-    if (!link.type) return;
-    const route = openRoute(link.type, link.target);
-    if (route) navigate(route);
-    else if (isMedia(link)) openFullscreen(lightboxRoute(link.target));
-    else if (link.type === 'file') globalThis.open(fileUrl(link.target), '_blank');
-  };
-  return (
-    <Group
-      gap={6}
-      wrap='nowrap'
-      pl={4}
-      pr={onRemove ? 2 : 8}
-      py={2}
-      style={{ borderRadius: 'var(--mantine-radius-sm)', background: 'var(--mrx-surface-raised)', maxWidth: 260 }}
-    >
-      <Tooltip label={link.type ? link.target : `${link.target}: gone, or not yours to see`}>
-        <UnstyledButton onClick={open} disabled={!link.type} style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
-          {isMedia(link) && !broken
-            ? (
-              <img
-                src={thumbnailUrl(link.target, true)}
-                alt=''
-                width={28}
-                height={28}
-                onError={() => setBroken(true)}
-                style={{ width: 28, height: 28, objectFit: 'cover', borderRadius: 4, display: 'block', flexShrink: 0 }}
-              />
-            )
-            : <TablerIcon name={linkIcon(link)} size={16} color={link.type ? undefined : 'var(--mantine-color-red-filled)'} />}
-          <Text size='xs' truncate c={link.type ? undefined : 'dimmed'}>{link.name}</Text>
-        </UnstyledButton>
-      </Tooltip>
-      {onRemove && <CloseButton size='xs' onClick={onRemove} aria-label={`Unlink ${link.name}`} />}
-    </Group>
   );
 }
 
@@ -293,9 +230,9 @@ function AssigneeButton({ item, members, onChanged }: { item: TodoItem; members:
 }
 
 /**
- * One item as a card: its title and whose it is, when it is due, and, opened, its notes and links
- * and what can be done with it — change it, give it a day, move it to another column. `onSelect`
- * gives it a box to pick it by; `aside` says more under the title.
+ * One item as a card: its title and whose it is, when it is due, what it links to, and, opened,
+ * its notes and what can be done with it — give it a day, move it to another column, change it in
+ * the item's dialog. `onSelect` gives it a box to pick it by; `aside` says more under the title.
  */
 function TodoCard({ item, members, columns, expanded, onExpand, onChanged, dragHandle, dragging, selected, onSelect, aside }: {
   item: TodoItem;
@@ -311,15 +248,12 @@ function TodoCard({ item, members, columns, expanded, onExpand, onChanged, dragH
   onSelect?: (selected: boolean) => void;
   aside?: ReactNode;
 }) {
-  const [editing, setEditing] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   const overdue = !item.done && item.due !== undefined && item.due < today();
 
   useEffect(() => {
     if (expanded) ref.current?.scrollIntoView({ block: 'nearest' });
   }, []);
-
-  if (editing) return <ItemEditor item={item} members={members} onDone={() => setEditing(false)} onChanged={onChanged} />;
 
   const moveTo = async (column: string) => {
     if (await run(`todo-move ${shq(item.path)} --column ${shq(column)}`)) onChanged();
@@ -356,7 +290,7 @@ function TodoCard({ item, members, columns, expanded, onExpand, onChanged, dragH
         </Box>
         <AssigneeButton item={item} members={members} onChanged={onChanged} />
       </Group>
-      {(item.due || item.notes || item.links || aside) && (
+      {(item.due || item.notes || aside) && (
         <Group gap={6} mt={6} wrap='wrap'>
           {item.due && (
             <Badge size='sm' variant={overdue ? 'filled' : 'light'} color={overdue ? 'red' : 'gray'} tt='none' leftSection={<TablerIcon name='calendar' size={11} />}>
@@ -364,13 +298,12 @@ function TodoCard({ item, members, columns, expanded, onExpand, onChanged, dragH
             </Badge>
           )}
           {!expanded && item.notes && <TablerIcon name='align-left' size={14} color='var(--mantine-color-dimmed)' aria-label='Has notes' />}
-          {!expanded && item.links && (
-            <Group gap={2} c='dimmed'>
-              <TablerIcon name='link' size={14} />
-              <Text size='xs' c='dimmed'>{item.links.length}</Text>
-            </Group>
-          )}
           {aside}
+        </Group>
+      )}
+      {item.links && (
+        <Group gap={6} mt={6}>
+          {item.links.map((link) => <LinkChip key={link.path} link={link} />)}
         </Group>
       )}
       {expanded && (
@@ -382,11 +315,6 @@ function TodoCard({ item, members, columns, expanded, onExpand, onChanged, dragH
               </Box>
             )
             : <Text size='xs' c='dimmed'>No notes.</Text>}
-          {item.links && (
-            <Group gap={6}>
-              {item.links.map((link) => <LinkChip key={link.path} link={link} />)}
-            </Group>
-          )}
           {item.done && (item.doneBy || item.doneAt) && <Text size='xs' c='dimmed'>{doneLabel(item, members)}</Text>}
           <Group gap={4} justify='flex-end'>
             {!item.done && <DueButton value={item.due ?? ''} onChange={(day) => void setDue(day)} />}
@@ -419,7 +347,13 @@ function TodoCard({ item, members, columns, expanded, onExpand, onChanged, dragH
               </ActionIcon>
             </Tooltip>
             <Tooltip label='Change'>
-              <ActionIcon variant='subtle' color='gray' size='lg' aria-label={`Change ${item.title}`} onClick={() => setEditing(true)}>
+              <ActionIcon
+                variant='subtle'
+                color='gray'
+                size='lg'
+                aria-label={`Change ${item.title}`}
+                onClick={() => openDialog(`/todos/item?path=${encodeURIComponent(item.path)}`)}
+              >
                 <TablerIcon name='pencil' size={18} />
               </ActionIcon>
             </Tooltip>
@@ -436,227 +370,91 @@ const doneLabel = (item: TodoItem, members: TodoMember[]): string => {
   return `Done${who}${item.doneAt ? `, ${new Date(item.doneAt).toLocaleString()}` : ''}`;
 };
 
-/**
- * An item opened to change: its title, notes, due day and whose it is, saved together; its links,
- * each taken away or added at once; or the item taken to the trash.
- */
-function ItemEditor({ item, members, onDone, onChanged }: { item: TodoItem; members: TodoMember[]; onDone: () => void; onChanged: () => void }) {
-  const [title, setTitle] = useState(item.title);
-  const [notes, setNotes] = useState(item.notes ?? '');
-  const [due, setDue] = useState(item.due ?? '');
-  const [assignee, setAssignee] = useState<string | null>(item.assignee ?? null);
-  const [links, setLinks] = useState<TodoLink[]>(item.links ?? []);
-  const [linking, setLinking] = useState('');
-  const [busy, setBusy] = useState(false);
-
-  const save = async (event: FormEvent) => {
-    event.preventDefault();
-    if (!title.trim()) return;
-    setBusy(true);
-    const command = `todo-set ${shq(item.path)} --title ${shq(title.trim())} --notes ${shq(notes)} ${due ? `--due ${shq(due)}` : '--no-due'} ${
-      assignee ? `--assignee ${shq(assignee)}` : '--no-assignee'
-    }`;
-    if (await run(command)) {
-      onChanged();
-      onDone();
-    }
-    setBusy(false);
-  };
-
-  const unlink = async (link: TodoLink) => {
-    if (await run(`rm ${shq(link.path)}`)) {
-      setLinks((shown) => shown.filter((other) => other.path !== link.path));
-      onChanged();
-    }
-  };
-
-  const link = async () => {
-    if (!linking.trim()) return;
-    try {
-      const linked = await execCommand<TodoItem>(`todo-link ${shq(item.path)} ${shq(linking.trim())}`);
-      setLinks(linked.links ?? []);
-      setLinking('');
-      onChanged();
-    } catch (err) {
-      notify({ message: err instanceof Error ? err.message : String(err), color: 'red' });
-    }
-  };
-
-  const remove = async () => {
-    setBusy(true);
-    if (await run(`trash put ${shq(item.path)}`)) {
-      notify({ message: `Moved "${item.title}" to the trash.`, color: 'green' });
-      onChanged();
-      onDone();
-    }
-    setBusy(false);
-  };
-
-  return (
-    <Paper withBorder p='sm' my={4} component='form' onSubmit={save}>
-      <Stack gap='xs'>
-        <TextInput value={title} onChange={(event) => setTitle(event.currentTarget.value)} aria-label='Title' data-autofocus autoFocus />
-        <Textarea placeholder='Notes' autosize minRows={1} maxRows={8} value={notes} onChange={(event) => setNotes(event.currentTarget.value)} aria-label='Notes' />
-        <Group gap='xs' wrap='nowrap'>
-          <DueButton value={due} onChange={setDue} />
-          <Select
-            style={{ flex: 1 }}
-            placeholder='Anyone'
-            clearable
-            data={members.map((member) => ({ value: member.username, label: member.name }))}
-            value={assignee}
-            onChange={setAssignee}
-            aria-label='Who'
-          />
-        </Group>
-        {links.length > 0 && (
-          <Group gap={6}>
-            {links.map((each) => <LinkChip key={each.path} link={each} onRemove={() => void unlink(each)} />)}
-          </Group>
-        )}
-        <TextInput
-          placeholder='Link a path, such as a picture or an album'
-          value={linking}
-          onChange={(event) => setLinking(event.currentTarget.value)}
-          onKeyDown={(event) => {
-            if (event.key !== 'Enter') return;
-            event.preventDefault();
-            void link();
-          }}
-          leftSection={<TablerIcon name='link' size={14} />}
-          rightSection={linking.trim() && (
-            <ActionIcon variant='subtle' size='sm' onClick={() => void link()} aria-label='Link'>
-              <TablerIcon name='plus' size={14} />
-            </ActionIcon>
-          )}
-          aria-label='Link a path'
-        />
-        <Group justify='space-between'>
-          <Button variant='subtle' color='red' size='xs' leftSection={<TablerIcon name='trash' size={14} />} onClick={remove} disabled={busy}>Move to trash</Button>
-          <Group gap='xs'>
-            <Button variant='default' size='xs' leftSection={<TablerIcon name='x' size={14} />} onClick={onDone} disabled={busy}>Cancel</Button>
-            <Button type='submit' size='xs' loading={busy} disabled={!title.trim()}>Save</Button>
-          </Group>
-        </Group>
-      </Stack>
-    </Paper>
-  );
-}
-
-/** A column's width: a phone shows one at a time with the next peeking in. */
-const columnWidth = (phone: boolean): string => phone ? 'calc(100vw - 64px)' : '300px';
-
-/** The board's scroller: its columns side by side, scrolled sideways and down together. */
+/** The board's scroller: its columns side by side, sharing its width and filling its height; sideways when they do not fit. */
 function BoardScroller({ children }: { children: ReactNode }) {
   return (
-    <Box h='100%' style={{ overflow: 'auto' }}>
-      <Box p='md' style={{ display: 'flex', gap: 12, alignItems: 'flex-start', width: 'max-content', minHeight: '100%' }}>{children}</Box>
+    <Box h='100%' style={{ overflowX: 'auto', overflowY: 'hidden' }}>
+      <Box p='md' h='100%' style={{ display: 'flex', gap: 12, alignItems: 'stretch', boxSizing: 'border-box' }}>{children}</Box>
     </Box>
   );
 }
 
-/** A column's frame: its heading, kept in sight as the board scrolls down, over its cards. */
-function ColumnFrame({ title, count, controls, children }: { title: string; count: number; controls?: ReactNode; children: ReactNode }) {
+/**
+ * A column's frame: its heading over its cards, which scroll on their own, and a `footer` under
+ * them that stays in sight. Columns share the board's width, none narrower than 260px; a phone
+ * shows one at a time with the next peeking in.
+ */
+function ColumnFrame({ title, count, controls, footer, children }: {
+  title: string;
+  count: number;
+  controls?: ReactNode;
+  footer?: ReactNode;
+  children: ReactNode;
+}) {
   const phone = usePhone();
   return (
-    <Paper radius='md' bg='var(--mrx-surface-raised)' w={columnWidth(phone)} style={{ flex: 'none' }}>
-      <Group
-        gap='xs'
-        wrap='nowrap'
-        px='sm'
-        py={8}
-        style={{ position: 'sticky', top: 0, zIndex: 1, background: 'var(--mrx-surface-raised)', borderRadius: 'var(--mantine-radius-md) var(--mantine-radius-md) 0 0' }}
-      >
+    <Paper
+      radius='md'
+      bg='var(--mrx-surface-raised)'
+      style={{ display: 'flex', flexDirection: 'column', minHeight: 0, ...(phone ? { flex: 'none', width: 'calc(100vw - 64px)' } : { flex: '1 0 260px' }) }}
+    >
+      <Group gap='xs' wrap='nowrap' px='sm' py={8} style={{ flex: 'none' }}>
         <Text fw={600} size='sm' truncate style={{ flex: 1, minWidth: 0 }}>{title}</Text>
         <Text size='xs' c='dimmed'>{count}</Text>
         {controls}
       </Group>
       {children}
+      {footer && <Box px={8} pb={8} style={{ flex: 'none' }}>{footer}</Box>}
     </Paper>
   );
 }
 
-/** A column's name as typed: the reason it cannot be one on this board, or undefined when it can. */
-const columnNameProblem = (name: string, columns: TodoColumn[]): string | undefined => {
-  if (!name) return undefined;
-  if (name.includes('/') || name.startsWith('.')) return 'A column cannot be called that';
-  if (RESERVED_COLUMNS.includes(name.toLocaleLowerCase())) return `The list keeps ${name} for itself`;
-  if (columns.some((column) => column.path.split('/').pop() === name || column.title === name)) return 'There is a column of that name';
-  return undefined;
-};
+/** The style of a column's cards: they take what the heading and footer leave and scroll there. */
+const COLUMN_CARDS = { flex: 1, minHeight: 0, overflowY: 'auto', borderRadius: 'var(--mantine-radius-sm)' } as const;
 
-/** A box that asks for a name in a popover and hands it on: a new column's, or a column's new one. */
-function NamePopover({ target, initial, label, columns, onName }: {
-  target: ReactNode;
-  initial: string;
-  label: string;
-  /** The board's columns, whose names a new one may not take; none when any name will do. */
-  columns: TodoColumn[];
-  onName: (name: string) => Promise<boolean>;
-}) {
+/** A column's rename: a popover asking for its new title, written as the folder's `name` attr. */
+function RenameColumn({ column, onChanged }: { column: TodoColumn; onChanged: () => void }) {
   const [opened, setOpened] = useState(false);
-  const [name, setName] = useState(initial);
+  const [name, setName] = useState(column.title);
   const [busy, setBusy] = useState(false);
-  const problem = columnNameProblem(name.trim(), columns);
   const submit = async (event: FormEvent) => {
     event.preventDefault();
-    if (!name.trim() || problem) return;
+    if (!name.trim()) return;
     setBusy(true);
-    if (await onName(name.trim())) setOpened(false);
+    // done/ may not have been made yet: the board shows Done all the same.
+    if (await run(`mkdir -p ${shq(column.path)} && attrs ${shq(column.path)} -s ${shq(`name=${name.trim()}`)}`)) {
+      setOpened(false);
+      onChanged();
+    }
     setBusy(false);
   };
   return (
-    <Popover opened={opened} onChange={setOpened} position='bottom' shadow='md' trapFocus onOpen={() => setName(initial)}>
+    <Popover opened={opened} onChange={setOpened} position='bottom' shadow='md' trapFocus onOpen={() => setName(column.title)}>
       <Popover.Target>
-        <Box onClick={() => setOpened((shown) => !shown)} style={{ display: 'flex' }}>{target}</Box>
+        <Tooltip label='Rename the column'>
+          <ActionIcon variant='subtle' color='gray' size='sm' aria-label={`Rename ${column.title}`} onClick={() => setOpened((shown) => !shown)}>
+            <TablerIcon name='pencil' size={14} />
+          </ActionIcon>
+        </Tooltip>
       </Popover.Target>
       <Popover.Dropdown>
-        <Group component='form' onSubmit={submit} gap='xs' wrap='nowrap' align='flex-start'>
-          <TextInput
-            size='xs'
-            w={200}
-            value={name}
-            onChange={(event) => setName(event.currentTarget.value)}
-            aria-label={label}
-            placeholder={label}
-            error={problem}
-            data-autofocus
-          />
-          <Button size='xs' type='submit' loading={busy} disabled={!name.trim() || problem !== undefined}>Save</Button>
+        <Group component='form' onSubmit={submit} gap='xs' wrap='nowrap'>
+          <TextInput size='xs' w={200} value={name} onChange={(event) => setName(event.currentTarget.value)} aria-label='Column name' data-autofocus />
+          <Button size='xs' type='submit' loading={busy} disabled={!name.trim()}>Save</Button>
         </Group>
       </Popover.Dropdown>
     </Popover>
   );
 }
 
-/** The menu in a column's heading: rename it, or, when it is empty and not Done, take it away. */
+/** The controls in a column's heading: rename it, or, when it is empty and not Done, take it away. */
 function ColumnMenu({ column, count, onChanged }: { column: TodoColumn; count: number; onChanged: () => void }) {
-  const rename = async (name: string) => {
-    // done/ may not have been made yet: the board shows Done all the same.
-    if (await run(`mkdir -p ${shq(column.path)} && attrs ${shq(column.path)} -s ${shq(`name=${name}`)}`)) {
-      onChanged();
-      return true;
-    }
-    return false;
-  };
   const remove = async () => {
     if (await run(`rmdir ${shq(column.path)}`)) onChanged();
   };
   return (
     <Group gap={0} wrap='nowrap'>
-      <NamePopover
-        initial={column.title}
-        label='Column name'
-        columns={[]}
-        onName={rename}
-        target={
-          <Tooltip label='Rename the column'>
-            <ActionIcon variant='subtle' color='gray' size='sm' aria-label={`Rename ${column.title}`}>
-              <TablerIcon name='pencil' size={14} />
-            </ActionIcon>
-          </Tooltip>
-        }
-      />
+      <RenameColumn column={column} onChanged={onChanged} />
       {column.stage === 'doing' && count === 0 && (
         <Tooltip label='Remove the column'>
           <ActionIcon variant='subtle' color='gray' size='sm' aria-label={`Remove ${column.title}`} onClick={() => void remove()}>
@@ -665,32 +463,6 @@ function ColumnMenu({ column, count, onChanged }: { column: TodoColumn; count: n
         </Tooltip>
       )}
     </Group>
-  );
-}
-
-/** The slim column between the started ones and Done that makes another, a folder in the list. */
-function AddColumn({ list, columns, onAdded }: { list: string; columns: TodoColumn[]; onAdded: () => void }) {
-  const add = async (name: string) => {
-    if (await run(`mkdir ${shq(`${list}/${name}`)}`)) {
-      onAdded();
-      return true;
-    }
-    return false;
-  };
-  return (
-    <NamePopover
-      initial=''
-      label='New column'
-      columns={columns}
-      onName={add}
-      target={
-        <Tooltip label='Add a column'>
-          <ActionIcon variant='default' size={36} radius='md' aria-label='Add a column'>
-            <TablerIcon name='plus' size={18} />
-          </ActionIcon>
-        </Tooltip>
-      }
-    />
   );
 }
 
@@ -747,9 +519,9 @@ const arrangementOf = (listing: TodoListing): Record<string, string[]> =>
   Object.fromEntries(listing.columns.map((column) => [column.path, listing.items.filter((item) => item.column === column.path).map((item) => item.path)]));
 
 /**
- * One list as a board: Todo, the folders of the list, a button for another, and Done, whose cards
- * can be picked and archived. A card is dragged within a column to reorder it and to another to
- * move it there; it shows where it was dropped until the list is read again.
+ * One list as a board: Todo, the folders of the list, and Done, whose cards can be picked and
+ * archived. A card is dragged within a column to reorder it and to another to move it there; it
+ * shows where it was dropped until the list is read again, as it is after an edit in a dialog.
  */
 function ListBoard({ path, highlight }: { path: string; highlight: string | null }) {
   const listing = useCommand<TodoListing>(`todo-items ${shq(path)}`);
@@ -759,6 +531,7 @@ function ListBoard({ path, highlight }: { path: string; highlight: string | null
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const [archiving, setArchiving] = useState(false);
   useEffect(() => setDropped(null), [listing.data]);
+  useEffect(() => onOutsideEdit(() => void listing.refetch()), [listing.refetch]);
 
   if (listing.loading && !listing.data) return <PageLoader />;
   if (listing.error || !listing.data) return <EmptyState title='This list could not be read'>{listing.error?.message}</EmptyState>;
@@ -841,12 +614,7 @@ function ListBoard({ path, highlight }: { path: string; highlight: string | null
       <BoardScroller>
         {columns.map((column) => {
           const cards = cardsOf(column);
-          return [
-            column.stage === 'done' && (
-              <Box key='add-column' pt={2}>
-                <AddColumn list={list.path} columns={columns} onAdded={changed} />
-              </Box>
-            ),
+          return (
             <ColumnFrame
               key={column.path}
               title={column.title}
@@ -857,6 +625,7 @@ function ListBoard({ path, highlight }: { path: string; highlight: string | null
                   {column.stage !== 'todo' && <ColumnMenu column={column} count={cards.length} onChanged={changed} />}
                 </>
               }
+              footer={column.stage === 'todo' && <AddCard list={list.path} onAdded={changed} />}
             >
               <Droppable droppableId={column.path}>
                 {(droppable, state) => (
@@ -866,8 +635,7 @@ function ListBoard({ path, highlight }: { path: string; highlight: string | null
                     gap={6}
                     px={8}
                     pb={8}
-                    mih={48}
-                    style={{ borderRadius: 'var(--mantine-radius-sm)', background: state.isDraggingOver ? 'var(--mantine-primary-color-light)' : undefined }}
+                    style={{ ...COLUMN_CARDS, background: state.isDraggingOver ? 'var(--mantine-primary-color-light)' : undefined }}
                   >
                     {cards.map((item, index) => (
                       <Draggable key={item.path} draggableId={item.path} index={index}>
@@ -889,12 +657,11 @@ function ListBoard({ path, highlight }: { path: string; highlight: string | null
                       </Draggable>
                     ))}
                     {droppable.placeholder}
-                    {column.stage === 'todo' && <AddCard list={list.path} onAdded={changed} />}
                   </Stack>
                 )}
               </Droppable>
-            </ColumnFrame>,
-          ];
+            </ColumnFrame>
+          );
         })}
       </BoardScroller>
     </DragDropContext>
@@ -908,6 +675,7 @@ function ListBoard({ path, highlight }: { path: string; highlight: string | null
 function OverviewBoard({ lists, onOpen }: { lists: TodoList[]; onOpen: (path: string) => void }) {
   const mine = useCommand<TodoMine[]>('todo-mine');
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  useEffect(() => onOutsideEdit(() => void mine.refetch()), [mine.refetch]);
   if (mine.loading && !mine.data) return <PageLoader />;
   if (mine.error) return <EmptyState title='Your items could not be read'>{mine.error.message}</EmptyState>;
   const items = mine.data ?? [];
@@ -915,7 +683,7 @@ function OverviewBoard({ lists, onOpen }: { lists: TodoList[]; onOpen: (path: st
     return (
       <EmptyState title='Nothing left for you'>
         {lists.length === 0
-          ? 'Make a list with the plus in the bar. Items given to you on any list, and those of your own lists given to nobody, gather here.'
+          ? "Make a list with New list in the bar's menu. Items given to you on any list, and those of your own lists given to nobody, gather here."
           : 'Items given to you on any list, and those of your own lists given to nobody, gather here.'}
       </EmptyState>
     );
@@ -928,7 +696,7 @@ function OverviewBoard({ lists, onOpen }: { lists: TodoList[]; onOpen: (path: st
         const cards = items.filter((item) => item.stage === stage);
         return (
           <ColumnFrame key={stage} title={title} count={cards.length}>
-            <Stack gap={6} px={8} pb={8} mih={48}>
+            <Stack gap={6} px={8} pb={8} style={COLUMN_CARDS}>
               {cards.length === 0 && <Text size='xs' c='dimmed' px={4}>Nothing here.</Text>}
               {cards.map((item) => (
                 <TodoCard

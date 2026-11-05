@@ -69,6 +69,7 @@ Deno.test({ name: 'todo lists', sanitizeResources: false, sanitizeOps: false }, 
       await bo.execString(`printf '%s\\n' '---' 'due: 2026-11-30' '---' '# Candles' '' 'Unscented, for the table.' > ${shopping}/candles.md`);
       const candles = (await anna.execJson<TodoListing>(`todo-items ${shopping}`)).items.find((item) => item.path.endsWith('/candles.md'));
       assertEquals([candles?.title, candles?.due, candles?.notes, candles?.done], ['Candles', '2026-11-30', 'Unscented, for the table.', false]);
+      assertEquals((await bo.execJson<TodoItem>(`todo-item ${shopping}/candles.md`)).notes, 'Unscented, for the table.');
       const changed = await anna.execJson<TodoItem>(`todo-set ${shopping}/candles.md --title 'Tall candles'`);
       assertEquals([changed.title, changed.notes, changed.due], ['Tall candles', 'Unscented, for the table.', '2026-11-30']);
       await bo.execString(`rm ${shopping}/candles.md`);

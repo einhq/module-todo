@@ -17,7 +17,9 @@
     "routes": {
       "/todos": "ui/pages/todos.tsx",
       "/todos/new": "ui/pages/new-item.tsx",
-      "/todos/new-list": "ui/pages/new-list.tsx"
+      "/todos/new-list": "ui/pages/new-list.tsx",
+      "/todos/new-column": "ui/pages/new-column.tsx",
+      "/todos/item": "ui/pages/edit-item.tsx"
     }
   }
 }

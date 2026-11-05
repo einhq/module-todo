@@ -2,7 +2,7 @@ import { Button } from '@mantine/core';
 import { CommandForm, EmptyState, type FormField, type FormValues, PageLoader } from '@ein/ui/components';
 import { useCommand, useSurface } from '@ein/ui/hooks';
 import { lightboxPathFromSearch, shq } from '@ein/ui/lib';
-import { pageLocation, pageShown } from '@ein/ui/signals';
+import { noteOutsideEdit, pageLocation, pageShown } from '@ein/ui/signals';
 import { useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import type { TodoList } from '../../lib/api.ts';
@@ -36,7 +36,14 @@ const build = (about: string | undefined) => (v: FormValues) => {
   let command = `todo-add ${shq(v.list)} ${shq(v.title.trim())}`;
   if (v.due?.trim()) command += ` --due ${shq(v.due.trim())}`;
   if (about && v[ABOUT] === 'true') command += ` --link ${shq(about)}`;
-  return { command, navigateTo: `/todos?list=${encodeURIComponent(v.list)}` };
+  return {
+    command,
+    navigateTo: () => {
+      // The list may be open behind the dialog already, where opening it again reads nothing.
+      noteOutsideEdit();
+      return `/todos?list=${encodeURIComponent(v.list)}`;
+    },
+  };
 };
 
 /**

@@ -452,7 +452,7 @@ const itemAt = async (cmd: Command, arg: string | undefined): Promise<{ item: To
 };
 
 /** The item `arg` names, a path; a `TodoError` when it is not an item the caller can read. */
-const readItem = async (cmd: Command, arg: string | undefined): Promise<TodoItem> => (await itemAt(cmd, arg)).item;
+export const readItem = async (cmd: Command, arg: string | undefined): Promise<TodoItem> => (await itemAt(cmd, arg)).item;
 
 /** A name in `dirs` that none of them has yet: `wanted`, or it with a number before its extension. */
 const freeName = async (cmd: Command, dirs: string[], wanted: string): Promise<string> => {
