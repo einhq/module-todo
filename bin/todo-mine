@@ -1,5 +1,5 @@
 #!ts
-/** todo-mine — what is left for you: open items given to you, and the open items of your own lists that are nobody else's. */
+/** todo-mine — what is left for you: items not done given to you, and those of your own lists that are nobody else's. */
 import type { CmdReturn, Command } from '@ein/client';
 import type { TodoMine } from '@todo/api';
 import { allLists, fail, itemLine } from '@todo/store';
@@ -8,17 +8,17 @@ const todoMine = async (cmd: Command): CmdReturn => {
   try {
     const me = cmd.env.USER ?? '';
     const mine: TodoMine[] = [];
-    for (const { list, open } of await allLists(cmd, true)) {
+    for (const { list, columns, open } of await allLists(cmd, true)) {
       for (const item of open) {
-        if (item.assignee === me || (!list.group && !item.assignee)) {
-          mine.push({ ...item, listTitle: list.title, ...(list.group ? { group: list.group } : {}) });
-        }
+        if (item.assignee !== me && (list.group || item.assignee)) continue;
+        const column = columns.find((each) => each.path === item.column)!;
+        mine.push({ ...item, listTitle: list.title, ...(list.group ? { group: list.group } : {}), columnTitle: column.title, stage: column.stage });
       }
     }
     // Soonest due first; those due on no day after them, in their lists' order.
     mine.sort((a, b) => (a.due ?? '9999').localeCompare(b.due ?? '9999') || (a.path < b.path ? -1 : 1));
     if (cmd.json) await cmd.writeJSON(mine satisfies TodoMine[]);
-    else for (const item of mine) await cmd.writeLn(`${itemLine(item)}  (${item.listTitle})`);
+    else for (const item of mine) await cmd.writeLn(`${itemLine(item)}  (${item.listTitle}, ${item.columnTitle})`);
     return 0;
   } catch (error) {
     return await fail(cmd, 'todo-mine', error);
@@ -28,11 +28,12 @@ const todoMine = async (cmd: Command): CmdReturn => {
 todoMine.spec = {
   name: 'todo-mine',
   effect: 'read' as const,
-  description: "List what is left for you to do: open items given to you on any list, and your own lists' open items given to nobody, soonest due first",
+  description:
+    "List what is left for you to do: items not done given to you on any list, and your own lists' items not done given to nobody, soonest due first, each with its column",
   args: [],
   flags: [],
   examples: ['todo-mine'],
-  returns: 'One entry per item, as todo-items gives them, with listTitle and group.',
+  returns: 'One entry per item, as todo-items gives them, with listTitle, group, columnTitle and stage (todo or doing).',
 };
 
 export default todoMine;

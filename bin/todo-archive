@@ -1,0 +1,28 @@
+#!ts
+/** todo-archive — put done todo items away in their list's archived/, off the board. */
+import type { CmdReturn, Command } from '@ein/client';
+import type { TodoItem } from '@todo/api';
+import { archiveItems, fail, itemLine } from '@todo/store';
+
+const todoArchive = async (cmd: Command): CmdReturn => {
+  try {
+    const archived = await archiveItems(cmd, cmd.args);
+    if (cmd.json) await cmd.writeJSON(archived satisfies TodoItem[]);
+    else for (const item of archived) await cmd.writeLn(itemLine(item));
+    return 0;
+  } catch (error) {
+    return await fail(cmd, 'todo-archive', error);
+  }
+};
+
+todoArchive.spec = {
+  name: 'todo-archive',
+  effect: 'write' as const,
+  description: "Put done todo items away in their list's archived/, which is no column of the board. todo-move or todo-done --undo takes one out again",
+  args: [{ name: 'item', type: 'path' as const, description: 'a done item, by its path', variadic: true }],
+  flags: [],
+  examples: ['todo-archive /groups/users/todos/Shopping/done/2026-11-05-140322.md'],
+  returns: 'The items as they are now, at their paths in archived/.',
+};
+
+export default todoArchive;

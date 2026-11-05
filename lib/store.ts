@@ -5,33 +5,35 @@
  * enter, a group's in `/groups/<group>/todos`, which every member may read and write and nobody
  * else sees. Its name is its title. An item is a markdown file in the list: YAML front matter for
  * `due`, `assignee`, `done` and `done-by`, the first `# heading` its title and the rest its notes.
- * The file is named for when it was added unless someone names it otherwise. Items are in the
- * order their `order` says, and those without one after them by birthtime. The softlinks the
- * file holds as children are what the item is about: a picture, an album. A done item is in the list's `done/`, whether or not its front matter
- * says when, so `ls` of a list is what is left on it. Who may see and change a list is the tree's
- * own access, and nothing here checks it: every read and write is made with the caller's access.
+ * The file is named for when it was added unless someone names it otherwise. The softlinks the
+ * file holds as children are what the item is about: a picture, an album.
+ *
+ * A list is a board of columns. Items in the list's own folder are not started (Todo); every
+ * folder in it is a column, called by its `name` attr or else its own name, in the order the
+ * folders were made; the list's `done/` is the Done column, last. A done item is in `done/`,
+ * whether or not its front matter says when, so `ls` of a list is what is not started. Done items
+ * are put away in `archived/`, which is no column. In each column items are in the order their
+ * `order` says, and those without one after them by birthtime. Who may see and change a list is
+ * the tree's own access, and nothing here checks it: every read and write is made with the
+ * caller's access.
  */
 import { basename, dirname, resolve } from '@std/path';
 import { parse as parseYaml, stringify as stringifyYaml } from '@std/yaml';
-import {
-  accessOfUser,
-  ADMIN_ACCESS,
-  type Command,
-  NodeAlreadyExistsError,
-  type NodeAttrs,
-  type NodeChildEntry,
-  NodeNotFoundError,
-  SYSTEM_TIME_ZONE,
-  type UserAttrs,
-} from '@ein/client';
-import { GROUP_HOMES_PATH, groupHomePath, USERS_PATH } from '@ein/paths';
-import type { TodoItem, TodoLink, TodoList, TodoMember } from './api.ts';
+import { ADMIN_ACCESS, type Command, NodeAlreadyExistsError, type NodeAttrs, type NodeChildEntry, NodeNotFoundError, SYSTEM_TIME_ZONE, type UserAttrs } from '@ein/client';
+import { GROUP_HOMES_PATH, groupHomePath, GROUPS_PATH, USERS_PATH } from '@ein/paths';
+import type { TodoColumn, TodoItem, TodoLink, TodoList, TodoMember } from './api.ts';
 
 /** The folder of lists in a home, a person's or a group's. */
 const TODOS_DIR = 'todos';
 
-/** The folder in a list that its done items are moved to. */
+/** The folder in a list that its done items are moved to: the Done column. */
 const DONE_DIR = 'done';
+
+/** The folder in a list that done items are put away in, out of the board. */
+const ARCHIVED_DIR = 'archived';
+
+/** The attr that names a column, when its folder's name is not what it is to be called. */
+const COLUMN_NAME_ATTR = 'name';
 
 const ITEM_MIMETYPE = 'text/markdown';
 
@@ -95,8 +97,8 @@ const children = async <T extends NodeAttrs = NodeAttrs>(cmd: Command, path: str
 const isItem = (entry: NodeChildEntry<FileAttrs>): boolean =>
   entry.node.type === 'file' && (entry.name.endsWith('.md') || (entry.node.attrs.mimetype ?? '').startsWith('text/'));
 
-/** Items in the order they were added: by birthtime, then by name. */
-const byAdded = (a: NodeChildEntry<FileAttrs>, b: NodeChildEntry<FileAttrs>): number =>
+/** Items or columns in the order they were added: by birthtime, then by name. */
+const byAdded = (a: NodeChildEntry, b: NodeChildEntry): number =>
   (a.node.props.birthtime?.timestamp ?? 0) - (b.node.props.birthtime?.timestamp ?? 0) || (a.name < b.name ? -1 : a.name > b.name ? 1 : 0);
 
 // --- The file -----------------------------------------------------------------------------------
@@ -159,7 +161,10 @@ const stem = (name: string): string => name.replace(/\.[^.]+$/, '') || name;
 
 const orderOf = (value: unknown): number | undefined => typeof value === 'number' && Number.isFinite(value) ? value : undefined;
 
-const itemOf = (list: string, path: string, doc: ItemDoc, done: boolean, links: TodoLink[]): TodoItem => {
+/** Where an item is: its list, the column it is in, and whether that makes it done. */
+type Place = { list: string; column: string; done: boolean };
+
+const itemOf = ({ list, column, done }: Place, path: string, doc: ItemDoc, links: TodoLink[]): TodoItem => {
   const heading = HEADING.exec(doc.body);
   const notes = (heading ? doc.body.replace(HEADING, '') : doc.body).trim();
   const due = dayOf(doc.meta.due);
@@ -170,6 +175,7 @@ const itemOf = (list: string, path: string, doc: ItemDoc, done: boolean, links: 
   return {
     path,
     list,
+    column,
     title: heading?.[1].trim() || stem(basename(path)),
     ...(notes ? { notes } : {}),
     done,
@@ -219,8 +225,9 @@ const writeText = async (cmd: Command, path: string, text: string): Promise<void
   }
 };
 
-/** The items of the list at `list` among `entries`, read with their links, in their order. */
-const readItems = async (cmd: Command, list: string, dir: string, entries: NodeChildEntry<FileAttrs>[], done: boolean): Promise<TodoItem[]> => {
+/** The items at `place` among `entries`, a listing of its column, read with their links, in their order. */
+const readItems = async (cmd: Command, place: Place, entries: NodeChildEntry<FileAttrs>[]): Promise<TodoItem[]> => {
+  const dir = place.column;
   const items = entries.filter(isItem).sort(byAdded);
   // Only an item with children can hold links, and those are listed in one read.
   const holding = items.filter((entry) => entry.childCount > 0).map((entry) => `${dir}/${entry.name}`);
@@ -229,36 +236,100 @@ const readItems = async (cmd: Command, list: string, dir: string, entries: NodeC
   const read = await Promise.all(items.map(async (entry) => {
     const path = `${dir}/${entry.name}`;
     const [text, links] = await Promise.all([readText(cmd, path), linksIn(cmd, path, childrenOf.get(path) ?? [])]);
-    return itemOf(list, path, parseItem(text), done, links);
+    return itemOf(place, path, parseItem(text), links);
   }));
   return read.sort(byOrder);
 };
 
-// --- Lists --------------------------------------------------------------------------------------
+// --- Lists and columns --------------------------------------------------------------------------
 
 const listOf = (path: string, open: number, total: number): TodoList => {
   const group = groupOf(path);
   return { path, title: basename(path), ...(group ? { group } : {}), open, total };
 };
 
+/** Whether a child of a list is one of its columns: a folder, but not `archived/` nor a hidden one. */
+const isColumnDir = (entry: NodeChildEntry): boolean => entry.node.type === 'directory' && entry.name !== ARCHIVED_DIR && !entry.name.startsWith('.');
+
+/** What a column folder is called: its `name` attr, else its name, `done/` being Done. */
+const columnTitle = (name: string, attrs: NodeAttrs): string => {
+  const named = attrs[COLUMN_NAME_ATTR];
+  if (typeof named === 'string' && named.trim()) return named.trim();
+  return name === DONE_DIR ? 'Done' : name;
+};
+
+/** The columns of the list at `list`, from a listing of it: Todo, its folders as they were made, Done whether or not `done/` is there yet. */
+const columnsOf = (list: string, entries: NodeChildEntry[]): TodoColumn[] => {
+  const folders = entries.filter(isColumnDir).sort(byAdded);
+  const done = folders.find((entry) => entry.name === DONE_DIR);
+  return [
+    { path: list, title: 'Todo', stage: 'todo' },
+    ...folders.filter((entry) => entry !== done).map((entry): TodoColumn => ({
+      path: `${list}/${entry.name}`,
+      title: columnTitle(entry.name, entry.node.attrs),
+      stage: 'doing',
+    })),
+    { path: `${list}/${DONE_DIR}`, title: done ? columnTitle(DONE_DIR, done.node.attrs) : 'Done', stage: 'done' },
+  ];
+};
+
+const placeIn = (list: string, column: TodoColumn): Place => ({ list, column: column.path, done: column.stage === 'done' });
+
+const settledChildren = <T extends NodeAttrs>(settled: PromiseSettledResult<NodeChildEntry<T>[]>): NodeChildEntry<T>[] => settled.status === 'fulfilled' ? settled.value : [];
+
 /**
- * Every list the caller can see, their own and then each of their groups', by title; with
- * `withOpen`, each list's open items read too. Done items are only counted.
+ * The lists at `paths` with their columns, the listings of each column beside them, keyed by the
+ * column's path: the list's own listing, read first, is its Todo column's.
  */
-export const allLists = async (cmd: Command, withOpen = false): Promise<{ list: TodoList; open: TodoItem[] }[]> => {
+const readBoards = async (cmd: Command, paths: string[]): Promise<{ columns: TodoColumn[]; listed: Map<string, NodeChildEntry<FileAttrs>[]> }[]> => {
+  const lists = (await cmd.sys.vfs.childrenMany<FileAttrs>(cmd.access, paths)).map(settledChildren);
+  const columns = paths.map((path, index) => columnsOf(path, lists[index]));
+  const inner = columns.flatMap((each) => each.slice(1).map((column) => column.path));
+  const innerListed = (await cmd.sys.vfs.childrenMany<FileAttrs>(cmd.access, inner)).map(settledChildren);
+  const byPath = new Map(inner.map((path, index) => [path, innerListed[index]]));
+  return paths.map((path, index) => ({
+    columns: columns[index],
+    listed: new Map(columns[index].map((column) => [column.path, column.path === path ? lists[index] : byPath.get(column.path) ?? []])),
+  }));
+};
+
+/** The items of a board's `columns` in turn, read from their `listed` listings. */
+const readColumns = async (cmd: Command, list: string, columns: TodoColumn[], listed: Map<string, NodeChildEntry<FileAttrs>[]>): Promise<TodoItem[]> =>
+  (await Promise.all(columns.map((column) => readItems(cmd, placeIn(list, column), listed.get(column.path) ?? [])))).flat();
+
+/** How many items a board has: those in any column but Done, and in every column. */
+const countOf = (columns: TodoColumn[], listed: Map<string, NodeChildEntry<FileAttrs>[]>): { open: number; total: number } => {
+  let open = 0;
+  let total = 0;
+  for (const column of columns) {
+    const items = (listed.get(column.path) ?? []).filter(isItem).length;
+    total += items;
+    if (column.stage !== 'done') open += items;
+  }
+  return { open, total };
+};
+
+/**
+ * Every list the caller can see, their own and then each of their groups', by title, with its
+ * columns; with `withOpen`, each list's items in any column but Done read too. Done items are only
+ * counted.
+ */
+export const allLists = async (cmd: Command, withOpen = false): Promise<{ list: TodoList; columns: TodoColumn[]; open: TodoItem[] }[]> => {
   // `/groups` lists only the homes of the caller's groups: the others are hidden from them.
   const groups = (await children(cmd, GROUP_HOMES_PATH)).map((entry) => entry.name).sort();
   const roots = [personalRoot(cmd), ...groups.map(groupRoot)];
-  const listed = <T extends NodeAttrs>(settled: PromiseSettledResult<NodeChildEntry<T>[]>) => settled.status === 'fulfilled' ? settled.value : [];
 
   const paths = (await cmd.sys.vfs.childrenMany(cmd.access, roots)).flatMap((settled, index) =>
-    listed(settled).filter((entry) => entry.node.type === 'directory').map((entry) => entry.name).sort((a, b) => a.localeCompare(b)).map((name) => `${roots[index]}/${name}`)
+    settledChildren(settled).filter((entry) => entry.node.type === 'directory').map((entry) => entry.name).sort((a, b) => a.localeCompare(b)).map((name) =>
+      `${roots[index]}/${name}`
+    )
   );
-  const contents = await cmd.sys.vfs.childrenMany<FileAttrs>(cmd.access, [...paths, ...paths.map((path) => `${path}/${DONE_DIR}`)]);
+  const boards = await readBoards(cmd, paths);
   return await Promise.all(paths.map(async (path, index) => {
-    const open = listed(contents[index]).filter(isItem);
-    const done = listed(contents[paths.length + index]).filter(isItem);
-    return { list: listOf(path, open.length, open.length + done.length), open: withOpen ? await readItems(cmd, path, path, open, false) : [] };
+    const { columns, listed } = boards[index];
+    const { open, total } = countOf(columns, listed);
+    const items = withOpen ? await readColumns(cmd, path, columns.filter((column) => column.stage !== 'done'), listed) : [];
+    return { list: listOf(path, open, total), columns, open: items };
   }));
 };
 
@@ -276,17 +347,17 @@ export const listAt = async (cmd: Command, arg: string | undefined): Promise<str
   return path;
 };
 
-/** The list `arg` names with its items, the open ones and then the done ones. */
-export const readList = async (cmd: Command, arg: string | undefined): Promise<{ list: TodoList; items: TodoItem[] }> => {
+/** The list `arg` names with its columns and their items, column by column. */
+export const readList = async (cmd: Command, arg: string | undefined): Promise<{ list: TodoList; columns: TodoColumn[]; items: TodoItem[] }> => {
   const path = await listAt(cmd, arg);
-  const open = await readItems(cmd, path, path, await children<FileAttrs>(cmd, path), false);
-  const done = await readItems(cmd, path, `${path}/${DONE_DIR}`, await children<FileAttrs>(cmd, `${path}/${DONE_DIR}`), true);
-  return { list: listOf(path, open.length, open.length + done.length), items: [...open, ...done] };
+  const [{ columns, listed }] = await readBoards(cmd, [path]);
+  const { open, total } = countOf(columns, listed);
+  return { list: listOf(path, open, total), columns, items: await readColumns(cmd, path, columns, listed) };
 };
 
 /**
- * Make a list called `title`, the caller's own or, with `group`, in that group's shared home. The
- * title is the folder's name, so a list of that title already there is refused.
+ * Make a list called `title`, the caller's own or, with `group`, in that group's shared home, with
+ * its `done/`. The title is the folder's name, so a list of that title already there is refused.
  */
 export const createList = async (cmd: Command, title: string, group?: string): Promise<TodoList> => {
   const name = title.trim();
@@ -308,29 +379,38 @@ export const createList = async (cmd: Command, title: string, group?: string): P
     if (error instanceof NodeAlreadyExistsError) throw new TodoError(`there is already a list called '${name}' in ${root}`);
     throw error;
   }
+  await cmd.sys.vfs.create(cmd.access, 'directory', `${root}/${name}`, DONE_DIR);
   return listOf(`${root}/${name}`, 0, 0);
 };
 
 /**
  * Who an item of the list at `path` may be given to: on a list of one's own only oneself, on a
- * group's every active member of the group. Membership is read as the administrator, since a
- * member need not be able to list `/etc/groups`, and only of a list the caller can already read.
+ * group's every active member of the group, whether by a membership link or as their primary
+ * group. Accounts and memberships are read as the administrator, since a member need not be able
+ * to list `/etc`, and only for a list the caller can already read.
  */
 export const membersOf = async (cmd: Command, path: string): Promise<TodoMember[]> => {
   const group = groupOf(path);
   const self = cmd.env.USER ?? '';
-  const accounts = await cmd.sys.vfs.children<UserAttrs>(ADMIN_ACCESS, USERS_PATH);
-  const named = (username: string, attrs?: UserAttrs): TodoMember => ({ username, name: attrs?.name || username });
-  if (!group) return [named(self, accounts.find((entry) => entry.name === self)?.node.attrs)];
-
-  const gid = (await cmd.sys.vfs.get(cmd.access, groupHomePath(group))).props.gid;
-  const members: TodoMember[] = [];
-  for (const entry of accounts) {
-    if (entry.node.type !== 'user' || entry.node.attrs.inactive) continue;
-    const access = await accessOfUser(cmd.sys.vfs, ADMIN_ACCESS, entry.name).catch(() => undefined);
-    if (access?.gids.includes(gid)) members.push(named(entry.name, entry.node.attrs));
-  }
-  return members.sort((a, b) => a.name.localeCompare(b.name));
+  const membersDir = `${GROUPS_PATH}/${group}/users`;
+  const [accounts, links, gid] = await Promise.all([
+    cmd.sys.vfs.children<UserAttrs>(ADMIN_ACCESS, USERS_PATH),
+    group ? cmd.sys.vfs.children(ADMIN_ACCESS, membersDir).catch(() => []) : [],
+    group ? cmd.sys.vfs.get(cmd.access, groupHomePath(group)).then((home) => home.props.gid) : undefined,
+  ]);
+  const linked = new Set(
+    links.filter((entry) => entry.node.type === SOFTLINK_TYPE && entry.node.props.softlink && resolve(membersDir, entry.node.props.softlink) === `${USERS_PATH}/${entry.name}`)
+      .map((entry) => entry.name),
+  );
+  const members = accounts.filter((entry) =>
+    entry.node.type === 'user' && (group ? !entry.node.attrs.inactive && (entry.node.attrs.gid === gid || linked.has(entry.name)) : entry.name === self)
+  );
+  // An account's `person` link is the person it is, whose picture stands for it.
+  const listed = await cmd.sys.vfs.childrenMany(ADMIN_ACCESS, members.map((entry) => `${USERS_PATH}/${entry.name}`));
+  return members.map((entry, index): TodoMember => {
+    const person = settledChildren(listed[index]).find((child) => child.name === 'person' && child.node.type === SOFTLINK_TYPE)?.node.props.softlink;
+    return { username: entry.name, name: entry.node.attrs.name || entry.name, ...(person ? { personPath: resolve(`${USERS_PATH}/${entry.name}`, person) } : {}) };
+  }).sort((a, b) => a.name.localeCompare(b.name));
 };
 
 /** `username` as an assignee of an item on the list at `path`, or a `TodoError` saying why not. */
@@ -342,12 +422,16 @@ const assignable = async (cmd: Command, path: string, username: string): Promise
 
 // --- Items --------------------------------------------------------------------------------------
 
-/** Where the item at `path` is: its list, and whether it is in the list's `done/`; undefined for anything else. */
-const placeOf = (cmd: Command, path: string): { list: string; done: boolean } | undefined => {
+/** Whether `dir`, a folder of the list at `list`, makes what is in it done: its `done/` and `archived/`. */
+const holdsDone = (list: string, dir: string): boolean => dir === `${list}/${DONE_DIR}` || dir === `${list}/${ARCHIVED_DIR}`;
+
+/** Where the item at `path` is: in a list, in one of its column folders, or put away; undefined for anything else. */
+const placeOf = (cmd: Command, path: string): Place | undefined => {
   const parent = dirname(path);
-  if (isRoot(cmd, dirname(parent))) return { list: parent, done: false };
-  if (basename(parent) === DONE_DIR && isRoot(cmd, dirname(dirname(parent)))) return { list: dirname(parent), done: true };
-  return undefined;
+  if (isRoot(cmd, dirname(parent))) return { list: parent, column: parent, done: false };
+  const list = dirname(parent);
+  if (!isRoot(cmd, dirname(list)) || basename(parent).startsWith('.')) return undefined;
+  return { list, column: parent, done: holdsDone(list, parent) };
 };
 
 /** The item `arg` names, a path, with its text; a `TodoError` when it is not an item the caller can read. */
@@ -364,7 +448,7 @@ const itemAt = async (cmd: Command, arg: string | undefined): Promise<{ item: To
   if (!place || !isItem({ node, name: basename(path), childCount: 0 })) throw new TodoError(`${path}: not a todo item`);
   const [text, entries] = await Promise.all([readText(cmd, path), children(cmd, path)]);
   const doc = parseItem(text);
-  return { item: itemOf(place.list, path, doc, place.done, await linksIn(cmd, path, entries)), doc };
+  return { item: itemOf(place, path, doc, await linksIn(cmd, path, entries)), doc };
 };
 
 /** The item `arg` names, a path; a `TodoError` when it is not an item the caller can read. */
@@ -439,24 +523,84 @@ export const linkItem = async (cmd: Command, arg: string, paths: string[]): Prom
 };
 
 /**
- * Put the open item at `arg` just before or just after `other` on its list, and number every open
- * item of the list from 1 in its new order, writing only those whose number changed.
+ * Move `item`, read as `doc`, into the folder `to` of its list under a name free there, marking it
+ * done, saying who and when, as it comes into `done/` or `archived/` from elsewhere, and not done
+ * as it leaves them. Answers its new path.
  */
-export const moveItem = async (cmd: Command, arg: string, other: string, after: boolean): Promise<TodoItem> => {
-  const { item } = await itemAt(cmd, arg);
-  const { item: beside } = await itemAt(cmd, other);
-  if (item.done || beside.done) throw new TodoError('only an open item has a place on its list');
-  if (beside.list !== item.list) throw new TodoError(`${beside.path} is not on the same list`);
-  const open = (await readList(cmd, item.list)).items.filter((each) => !each.done && each.path !== item.path);
-  const at = open.findIndex((each) => each.path === beside.path);
-  if (at === -1) throw new TodoError(`${beside.path}: not an item of the list`);
-  open.splice(after ? at + 1 : at, 0, item);
-  for (const [index, each] of open.entries()) {
+const moveTo = async (cmd: Command, { item, doc }: { item: TodoItem; doc: ItemDoc }, to: string): Promise<string> => {
+  const done = holdsDone(item.list, to);
+  if (done !== item.done) {
+    const meta = { ...doc.meta };
+    if (done) {
+      meta.done = new Date().toISOString();
+      meta['done-by'] = cmd.env.USER ?? String(cmd.access.uid);
+    } else {
+      delete meta.done;
+      delete meta['done-by'];
+    }
+    await writeText(cmd, item.path, renderItem({ ...doc, meta }));
+  }
+  if (to === item.column) return item.path;
+  if (to !== item.list) await cmd.sys.vfs.ensure(cmd.access, 'directory', item.list, basename(to));
+  const name = await freeName(cmd, [to], basename(item.path));
+  await cmd.sys.vfs.rename(cmd.access, item.column, basename(item.path), to, name, { failIfExists: true });
+  return `${to}/${name}`;
+};
+
+/** The column `arg` names on the list at `list`, a path: the list itself, or a folder in it other than `archived/`. */
+const columnAt = async (cmd: Command, list: string, arg: string): Promise<string> => {
+  const path = resolve(cmd.cwd, arg);
+  if (path === list || path === `${list}/${DONE_DIR}`) return path;
+  if (dirname(path) !== list) throw new TodoError(`${path}: not a column of ${list}`);
+  if (basename(path) === ARCHIVED_DIR) throw new TodoError(`${path}: archived items are no column; todo-archive puts them there`);
+  const node = await cmd.sys.vfs.get(cmd.access, path).catch(() => undefined);
+  if (node?.type !== 'directory' || basename(path).startsWith('.')) throw new TodoError(`${path}: no such column`);
+  return path;
+};
+
+/** Where `todo-move` puts an item: into a column, beside another item, or both when they agree. */
+export type MoveTarget = { column?: string; before?: string; after?: string };
+
+/**
+ * Put the item at `arg` into a column of its list, at its end, or just before or just after another
+ * item, in that item's column; then number every item of that column from 1 in its new order,
+ * writing only those whose number changed. Into Done it is marked done, out of it not done.
+ */
+export const moveItem = async (cmd: Command, arg: string, target: MoveTarget): Promise<TodoItem> => {
+  const moving = await itemAt(cmd, arg);
+  const { item } = moving;
+  const besideArg = target.before ?? target.after;
+  let to: string;
+  let beside: string | undefined;
+  if (besideArg !== undefined) {
+    const { item: other } = await itemAt(cmd, besideArg);
+    if (other.path === item.path) throw new TodoError('an item cannot be put beside itself');
+    if (other.list !== item.list) throw new TodoError(`${other.path} is not on the same list`);
+    if (other.column === `${item.list}/${ARCHIVED_DIR}`) throw new TodoError(`${other.path} is archived: it has no place on the board`);
+    if (target.column !== undefined && await columnAt(cmd, item.list, target.column) !== other.column) {
+      throw new TodoError(`${other.path} is not in ${resolve(cmd.cwd, target.column)}`);
+    }
+    to = other.column;
+    beside = other.path;
+  } else if (target.column !== undefined) {
+    to = await columnAt(cmd, item.list, target.column);
+  } else {
+    throw new TodoError('give --column, --before or --after');
+  }
+
+  const path = await moveTo(cmd, moving, to);
+  const others = (await readItems(cmd, { list: item.list, column: to, done: holdsDone(item.list, to) }, await children<FileAttrs>(cmd, to)))
+    .filter((each) => each.path !== path);
+  const at = beside === undefined ? others.length : others.findIndex((each) => each.path === beside);
+  if (at === -1) throw new TodoError(`${beside}: not an item of the column`);
+  const ordered = others.map((each) => ({ path: each.path, order: each.order }));
+  ordered.splice(beside !== undefined && target.after !== undefined ? at + 1 : at, 0, { path, order: undefined });
+  for (const [index, each] of ordered.entries()) {
     if (each.order === index + 1) continue;
     const { doc } = await itemAt(cmd, each.path);
     await writeText(cmd, each.path, renderItem({ ...doc, meta: { ...doc.meta, order: index + 1 } }));
   }
-  return readItem(cmd, item.path);
+  return readItem(cmd, path);
 };
 
 /** The changes `todo-set` makes; null takes a field away. */
@@ -482,25 +626,24 @@ export const updateItem = async (cmd: Command, arg: string, change: ItemChange):
 
 /**
  * Mark the item at `arg` done, saying who and when, and move it to its list's `done/`; with
- * `undo`, take that away and move it back. An item already where it is asked to be is left alone.
+ * `undo`, take that away and move it back to Todo. An item already where it is asked to be is left
+ * alone.
  */
 export const markDone = async (cmd: Command, arg: string, undo: boolean): Promise<TodoItem> => {
-  const { item, doc } = await itemAt(cmd, arg);
-  if (item.done !== undo) return item;
-  const meta = { ...doc.meta };
-  if (undo) {
-    delete meta.done;
-    delete meta['done-by'];
-  } else {
-    meta.done = new Date().toISOString();
-    meta['done-by'] = cmd.env.USER ?? String(cmd.access.uid);
-  }
-  await writeText(cmd, item.path, renderItem({ ...doc, meta }));
-  const to = undo ? item.list : `${item.list}/${DONE_DIR}`;
-  if (!undo) await cmd.sys.vfs.ensure(cmd.access, 'directory', item.list, DONE_DIR);
-  const name = await freeName(cmd, [to], basename(item.path));
-  await cmd.sys.vfs.rename(cmd.access, dirname(item.path), basename(item.path), to, name, { failIfExists: true });
-  return readItem(cmd, `${to}/${name}`);
+  const found = await itemAt(cmd, arg);
+  if (found.item.done !== undo) return found.item;
+  return readItem(cmd, await moveTo(cmd, found, undo ? found.item.list : `${found.item.list}/${DONE_DIR}`));
+};
+
+/** Put each done item `args` names away in its list's `archived/`, off the board; one there already is left alone. */
+export const archiveItems = async (cmd: Command, args: string[]): Promise<TodoItem[]> => {
+  if (args.length === 0) throw new TodoError('nothing to archive: give one or more items');
+  const found = await Promise.all(args.map((arg) => itemAt(cmd, arg)));
+  const open = found.find(({ item }) => !item.done);
+  if (open) throw new TodoError(`${open.item.path}: only a done item is archived`);
+  const archived: TodoItem[] = [];
+  for (const each of found) archived.push(await readItem(cmd, await moveTo(cmd, each, `${each.item.list}/${ARCHIVED_DIR}`)));
+  return archived;
 };
 
 /** Say `error` on stderr as `name`'s failure, and answer the exit code for it. */

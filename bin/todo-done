@@ -22,7 +22,7 @@ const todoDone = async (cmd: Command): CmdReturn => {
 todoDone.spec = {
   name: 'todo-done',
   effect: 'write' as const,
-  description: "Mark a todo item done, with who did it and when, moving it to the list's done/; with --undo, not done again and back in the list",
+  description: "Mark a todo item done, with who did it and when, moving it to the list's done/; with --undo, not done again and back in the list's Todo",
   args: [{ name: 'item', type: 'path' as const, description: 'the item, by its path' }],
   flags: [{ name: 'undo', type: 'bool' as const, description: 'mark it not done' }],
   examples: ['todo-done /groups/users/todos/Shopping/2026-11-05-140322.md', 'todo-done --undo /groups/users/todos/Shopping/done/2026-11-05-140322.md'],

@@ -1,5 +1,5 @@
 #!ts
-/** todo-items — a todo list and its items: the open ones, then the done ones. */
+/** todo-items — a todo list's board: its columns and their items. */
 import type { CmdReturn, Command } from '@ein/client';
 import type { TodoListing } from '@todo/api';
 import { fail, itemLine, readList } from '@todo/store';
@@ -8,7 +8,12 @@ const todoItems = async (cmd: Command): CmdReturn => {
   try {
     const listing = await readList(cmd, cmd.args[0]);
     if (cmd.json) await cmd.writeJSON(listing satisfies TodoListing);
-    else for (const item of listing.items) await cmd.writeLn(itemLine(item));
+    else {
+      for (const column of listing.columns) {
+        await cmd.writeLn(`${column.title}:`);
+        for (const item of listing.items.filter((each) => each.column === column.path)) await cmd.writeLn(`  ${itemLine(item)}`);
+      }
+    }
     return 0;
   } catch (error) {
     return await fail(cmd, 'todo-items', error);
@@ -18,11 +23,13 @@ const todoItems = async (cmd: Command): CmdReturn => {
 todoItems.spec = {
   name: 'todo-items',
   effect: 'read' as const,
-  description: 'Show a todo list and its items: the open ones, then those in its done/, each in their order',
+  description:
+    "Show a todo list's board: its columns, Todo (the list itself), each folder in it, then Done (its done/), and the items of each in their order. archived/ is left out",
   args: [{ name: 'list', type: 'path' as const, description: 'the list, by its path' }],
   flags: [],
   examples: ['todo-items /groups/users/todos/Shopping'],
-  returns: 'The list (path, title, group, open, total) and its items (path, title, notes, done, doneAt, doneBy, due, assignee).',
+  returns:
+    'The list (path, title, group, open, total), its columns (path, title, stage) and their items column by column (path, column, title, notes, done, doneAt, doneBy, due, assignee, order, links).',
 };
 
 export default todoItems;

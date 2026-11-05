@@ -1,5 +1,5 @@
 #!ts
-/** todo-move — put an open item just before or just after another on its list. */
+/** todo-move — put a todo item into a column of its list, or just before or just after another item. */
 import type { CmdReturn, Command } from '@ein/client';
 import { collectUnknownFlags, parseArgs, reportUnknownFlags } from '@ein/client';
 import type { TodoItem } from '@todo/api';
@@ -7,11 +7,11 @@ import { fail, itemLine, moveItem, TodoError } from '@todo/store';
 
 const todoMove = async (cmd: Command): CmdReturn => {
   const unknown: string[] = [];
-  const flags = parseArgs(cmd.args, { string: ['before', 'after'], unknown: collectUnknownFlags(unknown) });
+  const flags = parseArgs(cmd.args, { string: ['column', 'before', 'after'], unknown: collectUnknownFlags(unknown) });
   if (await reportUnknownFlags(cmd, unknown)) return 1;
   try {
-    if ((flags.before === undefined) === (flags.after === undefined)) throw new TodoError('give one of --before and --after');
-    const item = await moveItem(cmd, flags._[0] === undefined ? '' : String(flags._[0]), flags.before ?? flags.after!, flags.after !== undefined);
+    if (flags.before !== undefined && flags.after !== undefined) throw new TodoError('give one of --before and --after, not both');
+    const item = await moveItem(cmd, flags._[0] === undefined ? '' : String(flags._[0]), { column: flags.column, before: flags.before, after: flags.after });
     if (cmd.json) await cmd.writeJSON(item satisfies TodoItem);
     else await cmd.writeLn(itemLine(item));
     return 0;
@@ -23,14 +23,19 @@ const todoMove = async (cmd: Command): CmdReturn => {
 todoMove.spec = {
   name: 'todo-move',
   effect: 'write' as const,
-  description: "Put an open todo item just before or just after another on its list, numbering the list's open items in their new order",
+  description:
+    "Move a todo item to another column of its list's board, at its end, or put it just before or just after another item, numbering that column's items in their new order. Into done/ it is marked done, out of it not done",
   args: [{ name: 'item', type: 'path' as const, description: 'the item, by its path' }],
   flags: [
-    { name: 'before', type: 'path' as const, description: 'the item to put it before' },
-    { name: 'after', type: 'path' as const, description: 'the item to put it after' },
+    { name: 'column', type: 'path' as const, description: 'the column: the list itself (Todo), or a folder in it such as its done/' },
+    { name: 'before', type: 'path' as const, description: 'the item to put it before, in whichever column that is' },
+    { name: 'after', type: 'path' as const, description: 'the item to put it after, in whichever column that is' },
   ],
-  examples: ['todo-move /groups/users/todos/Shopping/2026-11-05-140322.md --before /groups/users/todos/Shopping/2026-11-04-091500.md'],
-  returns: 'The item as it is now, with its order.',
+  examples: [
+    "todo-move /groups/users/todos/Shopping/2026-11-05-140322.md --column '/groups/users/todos/Shopping/In the basket'",
+    'todo-move /groups/users/todos/Shopping/2026-11-05-140322.md --before /groups/users/todos/Shopping/2026-11-04-091500.md',
+  ],
+  returns: 'The item as it is now, at its new path, with its column and order.',
 };
 
 export default todoMove;

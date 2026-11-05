@@ -10,9 +10,23 @@ export type TodoList = {
   title: string;
   /** The group whose shared home holds it; absent for a list of the reader's own. */
   group?: string;
-  /** Items not done yet. */
+  /** Items not done yet, in any column but Done. */
   open: number;
+  /** Items in every column, Done too; archived ones are not counted. */
   total: number;
+};
+
+/**
+ * A column of a list's board. The list's own folder is Todo, what is not started; every folder in
+ * it is a column, its `done/` Done, last, whether or not the folder is there yet. `archived/` is
+ * no column.
+ */
+export type TodoColumn = {
+  path: string;
+  /** Todo for the list itself; else the folder's `name` attr, or its name (Done for `done/`). */
+  title: string;
+  /** Not started, started, or done. */
+  stage: 'todo' | 'doing' | 'done';
 };
 
 /** One item, as `todo-items`, `todo-mine`, `todo-add` and the other item commands answer it. */
@@ -20,10 +34,12 @@ export type TodoItem = {
   path: string;
   /** The list it is in. */
   list: string;
+  /** The column it is in: the list itself, a folder in it, or the list's `archived/`. */
+  column: string;
   title: string;
   /** What the file says after its title. */
   notes?: string;
-  /** Whether it is in its list's `done/`. */
+  /** Whether it is in its list's `done/` or `archived/`. */
   done: boolean;
   /** When it was marked done, as an ISO timestamp, when its file says so. */
   doneAt?: string;
@@ -33,7 +49,7 @@ export type TodoItem = {
   due?: string;
   /** The username of whoever is to do it. */
   assignee?: string;
-  /** Its place on its list, from its front matter; items without one come after those with one. */
+  /** Its place in its column, from its front matter; items without one come after those with one. */
   order?: number;
   /** What it is about: the softlinks its file holds. */
   links?: TodoLink[];
@@ -51,11 +67,19 @@ export type TodoLink = {
   mimetype?: string;
 };
 
-/** `todo-items`: the list and its items, the open ones and then the done ones, each in their order: by `order`, then as they were added. */
-export type TodoListing = { list: TodoList; items: TodoItem[] };
+/**
+ * `todo-items`: the list, its columns in their order, and the items of each column in turn, each
+ * column's in their order: by `order`, then as they were added.
+ */
+export type TodoListing = { list: TodoList; columns: TodoColumn[]; items: TodoItem[] };
 
-/** `todo-mine`: an item, with the list it is in. */
-export type TodoMine = TodoItem & { listTitle: string; group?: string };
+/** `todo-mine`: an item, with the list and the column it is in. */
+export type TodoMine = TodoItem & { listTitle: string; group?: string; columnTitle: string; stage: TodoColumn['stage'] };
 
 /** `todo-members`: someone an item of the list may be given to. */
-export type TodoMember = { username: string; name: string };
+export type TodoMember = {
+  username: string;
+  name: string;
+  /** The person the account is, whose picture stands for it, when the account is linked to one. */
+  personPath?: string;
+};

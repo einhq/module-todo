@@ -1,8 +1,8 @@
 /**
  * Todo lists through their commands: a list of one's own is nobody else's, a group's is every
  * member's and nobody else's, an item is a markdown file anyone may write by hand, a done item is
- * in its list's done/, an item goes only to someone who can see it, and Home's events carry the
- * items falling due that are the reader's to do.
+ * in its list's done/, a list's folders are the columns of its board, an item goes only to someone
+ * who can see it, and Home's events carry the items falling due that are the reader's to do.
  */
 import { assertEquals, assertMatch, assertRejects } from '@std/assert';
 import { basename } from '@std/path';
@@ -121,6 +121,48 @@ Deno.test({ name: 'todo lists', sanitizeResources: false, sanitizeOps: false }, 
       await assertRejects(() => anna.execJson(`todo-move ${milk.path}`));
     });
 
+    await t.step("a list's folders are its board's columns, named by their name attr, between Todo and Done", async () => {
+      const columns = async () => (await anna.execJson<TodoListing>(`todo-items ${shopping}`)).columns.map((column) => [column.title, column.stage]);
+      assertEquals(await columns(), [['Todo', 'todo'], ['Done', 'done']]);
+      await bo.execString(`mkdir ${shopping}/basket ${shopping}/archived`);
+      assertEquals(await columns(), [['Todo', 'todo'], ['basket', 'doing'], ['Done', 'done']]);
+      await bo.execString(`attrs ${shopping}/basket -s 'name=In the basket'`);
+      assertEquals(await columns(), [['Todo', 'todo'], ['In the basket', 'doing'], ['Done', 'done']]);
+    });
+
+    await t.step('todo-move takes an item between columns, marking it done in Done and not done out of it', async () => {
+      const [bread, milk] = (await anna.execJson<TodoListing>(`todo-items ${shopping}`)).items;
+      const started = await anna.execJson<TodoItem>(`todo-move ${bread.path} --column ${shopping}/basket`);
+      assertEquals([started.column, started.done, started.order], [`${shopping}/basket`, false, 1]);
+      assertEquals((await anna.execJson<TodoListing>(`todo-items ${shopping}`)).list.open, 3);
+      const done = await bo.execJson<TodoItem>(`todo-move ${milk.path} --column ${shopping}/done`);
+      assertEquals([done.column, done.done, done.doneBy], [`${shopping}/done`, true, 'bo']);
+      const back = await bo.execJson<TodoItem>(`todo-move ${done.path} --after ${started.path}`);
+      assertEquals([back.column, back.done, back.doneAt, back.order], [`${shopping}/basket`, false, undefined, 2]);
+      const mine = await anna.execJson<TodoItem>(`todo-move ${started.path} --before ${back.path}`);
+      assertEquals(mine.order, 1);
+      await assertRejects(() => anna.execJson(`todo-move ${back.path} --column ${shopping}/archived`));
+      await assertRejects(() => anna.execJson(`todo-move ${back.path} --column ${shopping}/nothing`));
+      const milkAgain = await anna.execJson<TodoItem>(`todo-move ${back.path} --column ${shopping}`);
+      await anna.execJson(`todo-move ${started.path} --before ${milkAgain.path}`);
+      assertEquals((await anna.execJson<TodoListing>(`todo-items ${shopping}`)).items.map((item) => [item.title, item.column]), [
+        ['Eggs', shopping],
+        ['Rye bread', shopping],
+        ['Milk', shopping],
+      ]);
+    });
+
+    await t.step('todo-archive puts done items in archived/, off the board, and only done ones', async () => {
+      const eggs = (await anna.execJson<TodoListing>(`todo-items ${shopping}`)).items.find((item) => item.title === 'Eggs')!;
+      await assertRejects(() => anna.execJson(`todo-archive ${eggs.path}`));
+      const done = await anna.execJson<TodoItem>(`todo-done ${eggs.path}`);
+      const [archived] = await anna.execJson<TodoItem[]>(`todo-archive ${done.path}`);
+      assertEquals([archived.column, archived.done, archived.doneBy], [`${shopping}/archived`, true, 'anna']);
+      const listing = await anna.execJson<TodoListing>(`todo-items ${shopping}`);
+      assertEquals([listing.items.some((item) => item.title === 'Eggs'), listing.list.open, listing.list.total], [false, 2, 2]);
+      assertEquals((await anna.execJson<TodoItem>(`todo-done --undo ${archived.path}`)).column, shopping);
+    });
+
     await t.step('an item links to what it is about, the links softlinks under its file that go with it to done/', async () => {
       await admin.execString('mkdir -p /groups/family/pictures && echo x > /groups/family/pictures/beach.jpg');
       const fix = await bo.execJson<TodoItem>(`todo-add ${shopping} 'Frame the picture' --link /groups/family/pictures/beach.jpg`);
@@ -139,7 +181,12 @@ Deno.test({ name: 'todo lists', sanitizeResources: false, sanitizeOps: false }, 
       await anna.execJson(`todo-add ${shq(trip)} 'Renew the passport' --due 2026-11-20`);
       await bo.execJson(`todo-add ${shopping} Apples --assignee anna --due 2026-11-10`);
       const mine = await anna.execJson<TodoMine[]>('todo-mine');
-      assertEquals(mine.map((item) => [item.title, item.listTitle]), [['Apples', 'Shopping'], ['Renew the passport', 'Before the trip']]);
+      assertEquals(mine.map((item) => [item.title, item.listTitle, item.columnTitle, item.stage]), [['Apples', 'Shopping', 'Todo', 'todo'], [
+        'Renew the passport',
+        'Before the trip',
+        'Todo',
+        'todo',
+      ]]);
       assertEquals((await bo.execJson<TodoMine[]>('todo-mine')).map((item) => item.title), []);
     });
 
