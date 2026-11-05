@@ -307,7 +307,7 @@ function TodoCard({ item, members, expanded, onExpand, highlighted, onChanged, d
       radius='sm'
       p={0}
       shadow={dragging || hovered ? 'md' : undefined}
-      bg='var(--mrx-surface-base)'
+      bg='var(--mrx-surface-raised)'
       {...dragHandle}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
