@@ -173,6 +173,11 @@ Deno.test({ name: 'todo lists', sanitizeResources: false, sanitizeOps: false }, 
       const twice = await anna.execJson<TodoItem>(`todo-link ${fix.path} /groups/family/pictures/beach.jpg`);
       assertEquals(twice.links?.map((link) => link.name), ['beach-2.jpg', 'beach.jpg']);
       await anna.execString(`rm ${fix.path}/beach-2.jpg`);
+      // A link is called what its target's name attr says, or else by the target's own name.
+      await admin.execString("attrs /groups/family/pictures -s 'name=Family pictures'");
+      const both = await anna.execJson<TodoItem>(`todo-link ${fix.path} /groups/family/pictures`);
+      assertEquals(both.links?.map((link) => [link.name, link.title]), [['beach.jpg', 'beach.jpg'], ['pictures', 'Family pictures']]);
+      await anna.execString(`rm ${fix.path}/pictures`);
       const done = await anna.execJson<TodoItem>(`todo-done ${fix.path}`);
       // rm of a link leaves the picture where it was.
       assertEquals(done.links?.map((link) => [link.target, link.type]), [['/groups/family/pictures/beach.jpg', 'file']]);

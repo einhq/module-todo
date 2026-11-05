@@ -57,7 +57,10 @@ export type TodoItem = {
 
 /** A link an item holds to something it is about, such as a picture or an album. */
 export type TodoLink = {
+  /** The link's own name, under the item. */
   name: string;
+  /** What it points at is called: that node's `name` attr, else its node name. */
+  title: string;
   /** The link's own path, under the item's. */
   path: string;
   /** The path it points at. */

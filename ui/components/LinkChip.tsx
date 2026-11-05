@@ -44,7 +44,7 @@ function LinkCover({ link }: { link: TodoLink }) {
 }
 
 /**
- * What an item is about: its cover or a glyph, and the link's name. It opens what it points at —
+ * What an item is about: its cover or a glyph, and what it is called. It opens what it points at —
  * the page a module gives its type, the lightbox for a picture, or the file itself — and with
  * `onRemove` has a cross that takes the link away.
  */
@@ -69,10 +69,10 @@ export function LinkChip({ link, onRemove }: { link: TodoLink; onRemove?: () => 
       <Tooltip label={link.type ? link.target : `${link.target}: gone, or not yours to see`}>
         <UnstyledButton onClick={open} disabled={!link.type} style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
           <LinkCover link={link} />
-          <Text size='xs' truncate c={link.type ? undefined : 'dimmed'}>{link.name}</Text>
+          <Text size='xs' truncate c={link.type ? undefined : 'dimmed'}>{link.title}</Text>
         </UnstyledButton>
       </Tooltip>
-      {onRemove && <CloseButton size='xs' onClick={onRemove} aria-label={`Unlink ${link.name}`} />}
+      {onRemove && <CloseButton size='xs' onClick={onRemove} aria-label={`Unlink ${link.title}`} />}
     </Group>
   );
 }

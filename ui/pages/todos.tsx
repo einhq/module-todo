@@ -391,8 +391,12 @@ function ColumnFrame({ title, count, controls, footer, children }: {
 /** The style of a column's cards: they take what the heading and footer leave and scroll there. */
 const COLUMN_CARDS = { flex: 1, minHeight: 0, overflowY: 'auto', borderRadius: 'var(--mantine-radius-sm)' } as const;
 
-/** A column's rename: a popover asking for its new title, written as the folder's `name` attr. */
-function RenameColumn({ column, onChanged }: { column: TodoColumn; onChanged: () => void }) {
+/**
+ * The pencil in a column's heading: a popover with the column's title, saved as the folder's `name`
+ * attr, and, for a column of the list's own making, Delete, which takes the folder away once no
+ * card is left in it; Done and Todo stay.
+ */
+function ColumnMenu({ column, count, onChanged }: { column: TodoColumn; count: number; onChanged: () => void }) {
   const [opened, setOpened] = useState(false);
   const [name, setName] = useState(column.title);
   const [busy, setBusy] = useState(false);
@@ -407,47 +411,45 @@ function RenameColumn({ column, onChanged }: { column: TodoColumn; onChanged: ()
     }
     setBusy(false);
   };
+  const remove = async () => {
+    setBusy(true);
+    if (await run(`rmdir ${shq(column.path)}`)) {
+      setOpened(false);
+      onChanged();
+    }
+    setBusy(false);
+  };
   return (
-    <Popover opened={opened} onChange={setOpened} position='bottom' shadow='md' trapFocus onOpen={() => setName(column.title)}>
+    <Popover opened={opened} onChange={setOpened} position='bottom-end' shadow='md' trapFocus onOpen={() => setName(column.title)}>
       <Popover.Target>
-        <Tooltip label='Rename the column'>
-          <ActionIcon variant='subtle' color='gray' size='sm' aria-label={`Rename ${column.title}`} onClick={() => setOpened((shown) => !shown)}>
+        <Tooltip label='Rename or delete the column'>
+          <ActionIcon variant='subtle' color='gray' size='sm' aria-label={`Change ${column.title}`} onClick={() => setOpened((shown) => !shown)}>
             <TablerIcon name='pencil' size={14} />
           </ActionIcon>
         </Tooltip>
       </Popover.Target>
       <Popover.Dropdown>
-        <Group component='form' onSubmit={submit} gap='xs' wrap='nowrap'>
-          <TextInput size='xs' w={200} value={name} onChange={(event) => setName(event.currentTarget.value)} aria-label='Column name' data-autofocus />
-          <Button size='xs' type='submit' loading={busy} disabled={!name.trim()}>Save</Button>
-        </Group>
+        <Stack component='form' onSubmit={submit} gap='xs' w={240}>
+          <TextInput size='xs' label='Column name' value={name} onChange={(event) => setName(event.currentTarget.value)} data-autofocus />
+          <Group justify='space-between' gap='xs'>
+            {column.stage === 'doing'
+              ? (
+                <Button size='xs' color='red' leftSection={<TablerIcon name='trash' size={14} />} onClick={() => void remove()} disabled={busy || count > 0}>
+                  Delete
+                </Button>
+              )
+              : <span />}
+            <Button size='xs' type='submit' loading={busy} disabled={!name.trim()}>Save</Button>
+          </Group>
+          {column.stage === 'doing' && count > 0 && <Text size='xs' c='dimmed'>Move its cards out to delete it.</Text>}
+        </Stack>
       </Popover.Dropdown>
     </Popover>
   );
 }
 
-/** The controls in a column's heading: rename it, or, when it is empty and not Done, take it away. */
-function ColumnMenu({ column, count, onChanged }: { column: TodoColumn; count: number; onChanged: () => void }) {
-  const remove = async () => {
-    if (await run(`rmdir ${shq(column.path)}`)) onChanged();
-  };
-  return (
-    <Group gap={0} wrap='nowrap'>
-      <RenameColumn column={column} onChanged={onChanged} />
-      {column.stage === 'doing' && count === 0 && (
-        <Tooltip label='Remove the column'>
-          <ActionIcon variant='subtle' color='gray' size='sm' aria-label={`Remove ${column.title}`} onClick={() => void remove()}>
-            <TablerIcon name='trash' size={14} />
-          </ActionIcon>
-        </Tooltip>
-      )}
-    </Group>
-  );
-}
-
-/** The line at the foot of Todo that adds an item: Enter adds it and stays for the next, Escape closes it. */
+/** The line at the foot of Todo that adds an item: Enter adds it and leaves the line for the next. */
 function AddCard({ list, onAdded }: { list: string; onAdded: () => void }) {
-  const [adding, setAdding] = useState(false);
   const [title, setTitle] = useState('');
   const [busy, setBusy] = useState(false);
 
@@ -462,27 +464,16 @@ function AddCard({ list, onAdded }: { list: string; onAdded: () => void }) {
     setBusy(false);
   };
 
-  if (!adding) {
-    return (
-      <Button variant='subtle' color='gray' size='xs' fullWidth justify='flex-start' leftSection={<TablerIcon name='plus' size={14} />} onClick={() => setAdding(true)}>
-        Add an item
-      </Button>
-    );
-  }
   return (
     <Box component='form' onSubmit={add}>
       <TextInput
         size='sm'
-        placeholder='What is to be done'
+        placeholder='Add an item'
         value={title}
         onChange={(event) => setTitle(event.currentTarget.value)}
-        onKeyDown={(event) => {
-          if (event.key === 'Escape') setAdding(false);
-        }}
-        onBlur={() => !title.trim() && setAdding(false)}
         disabled={busy}
         aria-label='New item'
-        autoFocus
+        leftSection={<TablerIcon name='plus' size={14} />}
         rightSection={
           <ActionIcon type='submit' variant='subtle' size='sm' loading={busy} disabled={!title.trim()} aria-label='Add'>
             <TablerIcon name='corner-down-left' size={14} />

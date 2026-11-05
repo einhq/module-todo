@@ -40,7 +40,7 @@ const ITEM_MIMETYPE = 'text/markdown';
 /** A reader's own lists: closed to everyone else, so neither they nor search see them. */
 const PERSONAL_MODE = 0o700;
 
-type FileAttrs = { mimetype?: string };
+type FileAttrs = { mimetype?: string; name?: unknown };
 
 /** A node's type, as a softlink's own node has it. */
 const SOFTLINK_TYPE = 'softlink';
@@ -197,8 +197,10 @@ const linksIn = async (cmd: Command, item: string, entries: NodeChildEntry[]): P
     entries.filter((entry) => entry.node.type === SOFTLINK_TYPE && entry.node.props.softlink).sort((a, b) => a.name.localeCompare(b.name)).map(async (entry) => {
       const target = resolve(item, entry.node.props.softlink!);
       const node = await cmd.sys.vfs.get<FileAttrs>(cmd.access, target).catch(() => undefined);
+      const named = node?.attrs.name;
       return {
         name: entry.name,
+        title: typeof named === 'string' && named.trim() ? named.trim() : basename(target) || entry.name,
         path: `${item}/${entry.name}`,
         target,
         ...(node ? { type: node.type } : {}),
