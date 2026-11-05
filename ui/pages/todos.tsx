@@ -226,10 +226,11 @@ function AssigneeButton({ item, members, onChanged }: { item: TodoItem; members:
 }
 
 /**
- * One item as a card. Its heading: the title, the due day once it has one, the pencil that opens
- * the item's dialog, and the face of whoever is to do it; on a desktop the pencil, and the calendar
+ * One item as a card. Its heading: the title, the pencil that opens the item's dialog, the due day
+ * once it has one, and the face of whoever is to do it; on a desktop the pencil, and the calendar
  * of an item with no day, show while the card is hovered or focused. Under it the description's
- * first line, which a click opens whole as markdown and another folds; `aside`; and last what the
+ * first line, ending in an ellipsis whenever more follows, which a click opens whole as markdown
+ * and another folds; `aside`; and last what the
  * item links to. `onSelect` gives it a box to pick it by.
  */
 function TodoCard({ item, members, expanded, onExpand, highlighted, onChanged, dragHandle, dragging, selected, onSelect, aside }: {
@@ -303,7 +304,6 @@ function TodoCard({ item, members, expanded, onExpand, highlighted, onChanged, d
           {item.title}
         </Text>
         <Group gap={2} wrap='nowrap' style={{ flex: 'none' }}>
-          {(item.due || tools) && <DueControl value={item.due ?? ''} overdue={overdue} onChange={(day) => void setDue(day)} opened={dueOpen} onOpened={setDueOpen} />}
           {tools && (
             <Tooltip label='Change'>
               <ActionIcon variant='subtle' color='gray' size='sm' aria-label={`Change ${item.title}`} onClick={edit}>
@@ -311,6 +311,7 @@ function TodoCard({ item, members, expanded, onExpand, highlighted, onChanged, d
               </ActionIcon>
             </Tooltip>
           )}
+          {(item.due || tools) && <DueControl value={item.due ?? ''} overdue={overdue} onChange={(day) => void setDue(day)} opened={dueOpen} onOpened={setDueOpen} />}
           <AssigneeButton item={item} members={members} onChanged={onChanged} />
         </Group>
       </Group>
@@ -323,7 +324,7 @@ function TodoCard({ item, members, expanded, onExpand, highlighted, onChanged, d
                 <Markdown content={item.description} breaks />
               </Box>
             )
-            : <Text size='xs' c='dimmed' lineClamp={1}>{plainMarkdown(item.description)}</Text>}
+            : <Text size='xs' c='dimmed' lineClamp={1}>{firstLine(item.description)}</Text>}
         </Box>
       )}
       {aside && <Group gap={6} mt={6} wrap='wrap'>{aside}</Group>}
@@ -335,6 +336,12 @@ function TodoCard({ item, members, expanded, onExpand, highlighted, onChanged, d
     </Paper>
   );
 }
+
+/** A description's first line as plain text, with an ellipsis when more lines follow it; one cut short gets its own from the clamp. */
+const firstLine = (description: string): string => {
+  const [first, ...rest] = plainMarkdown(description).split('\n').filter((line) => line.trim());
+  return rest.length > 0 ? `${first} …` : first ?? '';
+};
 
 /** Who ticked an item off and when, as far as its file says. */
 const doneLabel = (item: TodoItem, members: TodoMember[]): string => {
@@ -490,9 +497,15 @@ function AddCard({ list, onAdded }: { list: string; onAdded: () => void }) {
 type Landing = { column: string; top: number; height: number };
 
 /**
+ * The space under each card on a board. It is the draggable's own padding rather than the column's
+ * gap, so that the room a drag opens, which is the draggable's height, has it under the card too.
+ */
+const CARD_SPACE = 6;
+
+/**
  * Where the card `draggableId` would land at `destination`, measured from the board as it is drawn:
- * under the column's padding and the cards before that place, each with the column's gap, as tall
- * as the card. Undefined when it is over no column.
+ * under the column's padding and the cards before that place, as tall as the card without the space
+ * under it. Undefined when it is over no column.
  */
 const landingOf = (draggableId: string, destination: DraggableLocation | null | undefined): Landing | null => {
   if (!destination) return null;
@@ -500,11 +513,10 @@ const landingOf = (draggableId: string, destination: DraggableLocation | null | 
   const column = document.querySelector<HTMLElement>(`[data-rfd-droppable-id="${CSS.escape(destination.droppableId)}"]`);
   if (!dragged || !column) return null;
   const style = getComputedStyle(column);
-  const gap = parseFloat(style.rowGap) || 0;
   const others = [...column.querySelectorAll<HTMLElement>(':scope > [data-rfd-draggable-id]')].filter((each) => each !== dragged);
   let top = parseFloat(style.paddingTop) || 0;
-  for (const each of others.slice(0, destination.index)) top += each.getBoundingClientRect().height + gap;
-  return { column: destination.droppableId, top, height: dragged.getBoundingClientRect().height };
+  for (const each of others.slice(0, destination.index)) top += each.getBoundingClientRect().height;
+  return { column: destination.droppableId, top, height: dragged.getBoundingClientRect().height - CARD_SPACE };
 };
 
 /** The paths of a board's items, column by column, as the listing has them. */
@@ -631,7 +643,7 @@ function ListBoard({ path, highlight }: { path: string; highlight: string | null
                   <Stack
                     ref={droppable.innerRef}
                     {...droppable.droppableProps}
-                    gap={6}
+                    gap={0}
                     px={8}
                     pb={8}
                     style={{ ...COLUMN_CARDS, position: 'relative' }}
@@ -639,17 +651,24 @@ function ListBoard({ path, highlight }: { path: string; highlight: string | null
                     {cards.map((item, index) => (
                       <Draggable key={item.path} draggableId={item.path} index={index}>
                         {(draggable, drag) => (
-                          <div ref={draggable.innerRef} {...draggable.draggableProps}>
+                          <div ref={draggable.innerRef} {...draggable.draggableProps} style={{ ...draggable.draggableProps.style, paddingBottom: CARD_SPACE }}>
                             <TodoCard
                               item={item}
                               members={people}
                               expanded={expanded.has(item.path)}
                               highlighted={item.path === highlight}
-                              onExpand={(open) => expand(item, open)}
+                              onExpand={(open) =>
+                                expand(item, open)}
                               onChanged={changed}
                               dragHandle={draggable.dragHandleProps}
                               dragging={drag.isDragging}
-                              {...(column.stage === 'done' ? { selected: picked.has(item.path), onSelect: (on: boolean) => pick(item, on) } : {})}
+                              {...(column.stage === 'done'
+                                ? {
+                                  selected: picked.has(item.path),
+                                  onSelect: (on: boolean) =>
+                                    pick(item, on),
+                                }
+                                : {})}
                             />
                           </div>
                         )}
