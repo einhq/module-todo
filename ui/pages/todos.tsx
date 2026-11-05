@@ -282,13 +282,13 @@ function TodoCard({ item, members, expanded, onExpand, highlighted, onChanged, d
         <HatField pattern='neutral' kind='foot' color={ageColor(item)} />
         {onSelect && <Checkbox mt={5} size='xs' checked={selected ?? false} onChange={(event) => onSelect(event.currentTarget.checked)} aria-label={`Pick ${item.title}`} />}
         <Text
-          size='sm'
+          size='md'
           fw={500}
           lineClamp={3}
           td={item.done ? 'line-through' : undefined}
           c={item.done ? 'dimmed' : undefined}
           title={item.done && (item.doneBy || item.doneAt) ? doneLabel(item, members) : undefined}
-          mt={2}
+          mt={1}
           style={{ flex: 1, minWidth: 0 }}
         >
           {item.title}
