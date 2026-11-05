@@ -1,4 +1,4 @@
-import { ActionIcon, Badge, Box, Button, Checkbox, Group, Menu, Paper, Popover, Stack, Tabs, Text, Textarea, TextInput, Tooltip } from '@mantine/core';
+import { ActionIcon, Badge, Box, Button, Checkbox, Group, Loader, Menu, Paper, Popover, Stack, Tabs, Text, Textarea, TextInput, Tooltip } from '@mantine/core';
 import { DatePicker } from '@mantine/dates';
 import {
   DragDropContext,
@@ -272,15 +272,8 @@ function AssigneeButton({ item, members, onChanged }: { item: TodoItem; members:
   );
 }
 
-/**
- * One item as a card. Its heading: the title (after `prefix`, on the Overview its list), the pencil
- * that opens the item's dialog, the due day once it has one, and the face of whoever is to do it;
- * on a desktop the pencil, and the calendar of an item with no day, show while the card is hovered
- * or focused. Under it the description's first line, ending in an ellipsis whenever more follows,
- * which a click opens whole as markdown and another folds; and last what the item links to.
- * `onSelect` gives it a box to pick it by.
- */
-function TodoCard({ item, members, expanded, onExpand, highlighted, onChanged, dragHandle, dragging, selected, onSelect, prefix, onPrefix }: {
+/** What a card or a row is given. */
+type CardProps = {
   item: TodoItem;
   members: TodoMember[];
   /** Whether the description is open whole. */
@@ -289,6 +282,8 @@ function TodoCard({ item, members, expanded, onExpand, highlighted, onChanged, d
   /** The card a link opened the page at: framed, and scrolled to. */
   highlighted?: boolean;
   onChanged: () => void;
+  /** The stage of the column it is in: a row in a started one has a spinner. */
+  stage: TodoColumn['stage'];
   dragHandle?: DraggableProvidedDragHandleProps | null;
   dragging?: boolean;
   selected?: boolean;
@@ -297,14 +292,27 @@ function TodoCard({ item, members, expanded, onExpand, highlighted, onChanged, d
   prefix?: string;
   /** What a click on the prefix does: open that list. */
   onPrefix?: () => void;
-}) {
-  const phone = usePhone();
+};
+
+/** One item: a card on a board, a row of a list on a phone. */
+function TodoCard(props: CardProps) {
+  return usePhone() ? <TodoRow {...props} /> : <BoardCard {...props} />;
+}
+
+/**
+ * One item as a card. Its heading: the title (after `prefix`, on the Overview its list), the pencil
+ * that opens the item's dialog, the due day once it has one, and the face of whoever is to do it;
+ * the pencil, and the calendar of an item with no day, show while the card is hovered or focused. Under it the description's first line, ending in an ellipsis whenever more follows,
+ * which a click opens whole as markdown and another folds; and last what the item links to.
+ * `onSelect` gives it a box to pick it by.
+ */
+function BoardCard({ item, members, expanded, onExpand, highlighted, onChanged, dragHandle, dragging, selected, onSelect, prefix, onPrefix }: CardProps) {
   const ref = useRef<HTMLDivElement>(null);
   const [hovered, setHovered] = useState(false);
   const [focused, setFocused] = useState(false);
   const [dueOpen, setDueOpen] = useState(false);
   const overdue = !item.done && item.due !== undefined && item.due < today();
-  const tools = phone || hovered || focused || dueOpen;
+  const tools = hovered || focused || dueOpen;
   const tint = ageColor(item);
 
   useEffect(() => {
@@ -420,6 +428,111 @@ function TodoCard({ item, members, expanded, onExpand, highlighted, onChanged, d
         </Box>
       )}
     </Paper>
+  );
+}
+
+/**
+ * One item as a row of a list, as a phone shows a board: a box that ticks it off, moving it to Done,
+ * and unticked moves it back; a spinner while it is in a started column (neither Todo nor Done); its
+ * title; at the right its due day, whoever is to do it, the pencil, and a chevron that unfolds its
+ * description when it has one; under the title what it links to, as their covers alone. The row is
+ * what is lifted to move it. A line parts it from the next.
+ */
+function TodoRow({ item, members, expanded, onExpand, highlighted, onChanged, stage, dragHandle, dragging, prefix, onPrefix }: CardProps) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [dueOpen, setDueOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const overdue = !item.done && item.due !== undefined && item.due < today();
+
+  useEffect(() => {
+    if (highlighted) ref.current?.scrollIntoView({ block: 'nearest' });
+  }, []);
+
+  const setDue = async (day: string) => {
+    if (await run(`todo-set ${shq(item.path)} ${day ? `--due ${shq(day)}` : '--no-due'}`)) onChanged();
+  };
+  const tick = async (done: boolean) => {
+    setBusy(true);
+    if (await run(`todo-done ${done ? '' : '--undo '}${shq(item.path)}`)) onChanged();
+    setBusy(false);
+  };
+  const edit = () => openDialog(`/todos/item?path=${encodeURIComponent(item.path)}`);
+
+  return (
+    <Box
+      ref={ref}
+      {...dragHandle}
+      px='sm'
+      py={10}
+      title={item.done && (item.doneBy || item.doneAt) ? doneLabel(item, members) : undefined}
+      style={{
+        borderBottom: COLUMN_RULE,
+        background: dragging ? 'var(--mrx-surface-raised)' : highlighted ? 'color-mix(in srgb, var(--mantine-primary-color-filled) 14%, transparent)' : undefined,
+        boxShadow: dragging ? 'var(--mantine-shadow-md)' : highlighted ? 'inset 3px 0 0 var(--mantine-primary-color-filled)' : undefined,
+      }}
+    >
+      <Group gap='sm' wrap='nowrap' align='flex-start'>
+        <Checkbox
+          size='md'
+          radius='xl'
+          mt={1}
+          checked={item.done}
+          disabled={busy}
+          onChange={(event) => void tick(event.currentTarget.checked)}
+          aria-label={item.done ? `${item.title}: not done after all` : `${item.title}: done`}
+        />
+        <Box style={{ flex: 1, minWidth: 0 }}>
+          <Group gap={6} wrap='nowrap' align='flex-start'>
+            {stage === 'doing' && !item.done && <Loader size={14} mt={5} style={{ flex: 'none' }} aria-label='Ongoing' />}
+            <Text size='md' lineClamp={3} td={item.done ? 'line-through' : undefined} c={item.done ? 'dimmed' : undefined} style={{ flex: 1, minWidth: 0 }}>
+              {prefix && (
+                <Text
+                  span
+                  inherit
+                  c='dimmed'
+                  onClick={onPrefix && ((event: MouseEvent<HTMLSpanElement>) => {
+                    event.stopPropagation();
+                    onPrefix();
+                  })}
+                >
+                  {prefix} ›{' '}
+                </Text>
+              )}
+              {item.title}
+            </Text>
+          </Group>
+          {item.description && expanded && (
+            <Box fz='sm' mt={4}>
+              <Markdown content={item.description} breaks />
+            </Box>
+          )}
+          {item.links && (
+            <Group gap={6} mt={6}>
+              {item.links.map((link) => <LinkChip key={link.path} link={link} bare />)}
+            </Group>
+          )}
+        </Box>
+        <Group gap={2} wrap='nowrap' align='center' style={{ flex: 'none' }}>
+          <DueControl value={item.due ?? ''} overdue={overdue} onChange={(day) => void setDue(day)} opened={dueOpen} onOpened={setDueOpen} />
+          <AssigneeButton item={item} members={members} onChanged={onChanged} />
+          <ActionIcon variant='subtle' color='gray' size='md' aria-label={`Change ${item.title}`} onClick={edit}>
+            <TablerIcon name='pencil' size={16} />
+          </ActionIcon>
+          {item.description && (
+            <ActionIcon
+              variant='subtle'
+              color='gray'
+              size='md'
+              aria-label={expanded ? 'Fold the description' : 'Show the description'}
+              aria-expanded={expanded}
+              onClick={() => onExpand(!expanded)}
+            >
+              <TablerIcon name='chevron-down' size={16} style={{ transform: expanded ? 'rotate(180deg)' : undefined, transition: 'transform 120ms ease' }} />
+            </ActionIcon>
+          )}
+        </Group>
+      </Group>
+    </Box>
   );
 }
 
@@ -546,11 +659,11 @@ function ColumnFrame({ index, title, count, edit, editing, controls, footer, chi
 /**
  * A column's cards, the drop target `droppable` gives them: side by side a box that takes what the
  * heading and footer leave and scrolls with the app's own scrollbar over its edge, which takes no
- * width and so reflows nothing as it comes and goes; stacked on a phone, as tall as the cards.
+ * width and so reflows nothing as it comes and goes; stacked on a phone, as tall as its rows, edge to edge.
  */
 function ColumnCards({ droppable, children }: { droppable: DroppableProvided; children: ReactNode }) {
   const phone = usePhone();
-  const style: CSSProperties = { position: 'relative', padding: 8, ...(phone ? { minHeight: 48 } : {}) };
+  const style: CSSProperties = { position: 'relative', ...(phone ? { minHeight: 48 } : { padding: 8 }) };
   if (phone) return <div ref={droppable.innerRef} {...droppable.droppableProps} style={style}>{children}</div>;
   return (
     <ScrollBox frameStyle={{ flex: 1, minHeight: 0 }} viewportRef={droppable.innerRef} {...droppable.droppableProps} style={style}>
@@ -802,18 +915,20 @@ function AddCard({ list, onAdded }: { list: string; onAdded: () => void }) {
 }
 
 /** Where a dragged card would land: its column, and the top and height of its frame there. */
-type Landing = { column: string; top: number; height: number };
+type Landing = { column: string; top: number; height: number; inset: number };
 
 /**
- * The space under each card on a board. It is the draggable's own padding rather than the column's
- * gap, so that the room a drag opens, which is the draggable's height, has it under the card too.
+ * The space under each card on a board; none under a phone's rows, which a line parts. It is the
+ * draggable's own padding rather than the column's gap, so that the room a drag opens, which is the
+ * draggable's height, has it under the card too.
  */
 const CARD_SPACE = 6;
+const cardSpace = (phone: boolean): number => phone ? 0 : CARD_SPACE;
 
 /**
  * Where the card `draggableId` would land at `destination`, measured from the board as it is drawn:
  * under the column's padding and the cards before that place, as tall as the card without the space
- * under it. Undefined when it is over no column.
+ * under it, as wide as the column's padding leaves. Undefined when it is over no column.
  */
 const landingOf = (draggableId: string, destination: DraggableLocation | null | undefined): Landing | null => {
   if (!destination) return null;
@@ -824,7 +939,8 @@ const landingOf = (draggableId: string, destination: DraggableLocation | null | 
   const others = [...column.querySelectorAll<HTMLElement>(':scope > [data-rfd-draggable-id]')].filter((each) => each !== dragged);
   let top = parseFloat(style.paddingTop) || 0;
   for (const each of others.slice(0, destination.index)) top += each.getBoundingClientRect().height;
-  return { column: destination.droppableId, top, height: dragged.getBoundingClientRect().height - CARD_SPACE };
+  const space = parseFloat(getComputedStyle(dragged).paddingBottom) || 0;
+  return { column: destination.droppableId, top, height: dragged.getBoundingClientRect().height - space, inset: parseFloat(style.paddingLeft) || 0 };
 };
 
 /** A dashed frame the size of a dragged card where it would land. */
@@ -835,8 +951,8 @@ function LandingFrame({ landing }: { landing: Landing }) {
       style={{
         position: 'absolute',
         top: landing.top,
-        left: 8,
-        right: 8,
+        left: landing.inset,
+        right: landing.inset,
         height: landing.height,
         boxSizing: 'border-box',
         border: '2px dashed var(--mantine-color-dimmed)',
@@ -982,7 +1098,7 @@ function ListBoard({ path, highlight }: { path: string; highlight: string | null
                     {cards.map((item, index) => (
                       <Draggable key={item.path} draggableId={item.path} index={index}>
                         {(draggable, drag) => (
-                          <div ref={draggable.innerRef} {...draggable.draggableProps} style={{ ...draggable.draggableProps.style, paddingBottom: CARD_SPACE }}>
+                          <div ref={draggable.innerRef} {...draggable.draggableProps} style={{ ...draggable.draggableProps.style, paddingBottom: cardSpace(phone) }}>
                             <TodoCard
                               item={item}
                               members={people}
@@ -991,6 +1107,7 @@ function ListBoard({ path, highlight }: { path: string; highlight: string | null
                               onExpand={(open) =>
                                 expand(item, open)}
                               onChanged={changed}
+                              stage={column.stage}
                               dragHandle={draggable.dragHandleProps}
                               dragging={drag.isDragging}
                               {...(column.stage === 'done'
@@ -1112,7 +1229,7 @@ function OverviewBoard({ lists, onOpen }: { lists: TodoList[]; onOpen: (path: st
                     {cards.map((item, at) => (
                       <Draggable key={item.path} draggableId={item.path} index={at}>
                         {(draggable, drag) => (
-                          <div ref={draggable.innerRef} {...draggable.draggableProps} style={{ ...draggable.draggableProps.style, paddingBottom: CARD_SPACE }}>
+                          <div ref={draggable.innerRef} {...draggable.draggableProps} style={{ ...draggable.draggableProps.style, paddingBottom: cardSpace(phone) }}>
                             <TodoCard
                               item={item}
                               members={[]}
@@ -1126,6 +1243,7 @@ function OverviewBoard({ lists, onOpen }: { lists: TodoList[]; onOpen: (path: st
                                   return next;
                                 })}
                               onChanged={changed}
+                              stage={item.stage}
                               dragHandle={draggable.dragHandleProps}
                               dragging={drag.isDragging}
                               prefix={item.listTitle}
