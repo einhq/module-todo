@@ -257,7 +257,7 @@ function TodoCard({ item, members, expanded, onExpand, highlighted, onChanged, d
       withBorder
       radius='sm'
       p={0}
-      shadow={dragging ? 'md' : undefined}
+      shadow={dragging || hovered ? 'md' : undefined}
       bg='var(--mrx-surface-base)'
       {...dragHandle}
       onMouseEnter={() => setHovered(true)}
@@ -269,10 +269,16 @@ function TodoCard({ item, members, expanded, onExpand, highlighted, onChanged, d
       onKeyDown={(event: KeyboardEvent<HTMLDivElement>) => {
         if (event.key === 'Enter' && event.target === event.currentTarget) edit();
       }}
-      style={{ cursor: dragHandle ? 'grab' : undefined, position: 'relative', overflow: 'hidden', borderColor: highlighted ? CARD_EDGE_HIGHLIGHTED : CARD_EDGE }}
+      style={{
+        cursor: dragHandle ? 'grab' : undefined,
+        position: 'relative',
+        overflow: 'hidden',
+        borderColor: highlighted ? CARD_EDGE_HIGHLIGHTED : hovered ? CARD_EDGE_HOVERED : CARD_EDGE,
+        transition: 'border-color 120ms ease, box-shadow 120ms ease',
+      }}
     >
       {/* Top-aligned, so a title of several lines keeps its buttons by its first line; the margins centre that line, and the box, on the face (26px). */}
-      <Group gap={6} wrap='nowrap' align='flex-start' px='xs' py={6} title={addedLabel(item)} style={CARD_BAND}>
+      <Group gap={6} wrap='nowrap' align='flex-start' px='xs' py={6} title={addedLabel(item)} style={{ ...CARD_BAND, filter: hovered ? 'brightness(1.3)' : undefined }}>
         <HatField pattern='neutral' kind='foot' color={ageColor(item)} />
         {onSelect && <Checkbox mt={5} size='xs' checked={selected ?? false} onChange={(event) => onSelect(event.currentTarget.checked)} aria-label={`Pick ${item.title}`} />}
         <Text
@@ -316,7 +322,7 @@ function TodoCard({ item, members, expanded, onExpand, highlighted, onChanged, d
                       <Markdown content={item.description} breaks />
                     </Box>
                   )
-                  : <Text size='xs' c='dimmed' lineClamp={1}>{firstLine(item.description)}</Text>}
+                  : <Text size='sm' c='dimmed' lineClamp={1}>{firstLine(item.description)}</Text>}
               </Box>
             )}
             {aside && <Group gap={6} mt={item.description ? 6 : 0} wrap='wrap'>{aside}</Group>}
@@ -335,9 +341,11 @@ function TodoCard({ item, members, expanded, onExpand, highlighted, onChanged, d
 /** A card's border; the accent for the card a link opened the page at. */
 const CARD_EDGE = 'var(--mantine-color-default-border)';
 const CARD_EDGE_HIGHLIGHTED = 'var(--mantine-primary-color-filled)';
+/** A card's border while the pointer is over it, which also casts a shadow and brightens its heading. */
+const CARD_EDGE_HOVERED = 'var(--mantine-color-dark-2)';
 
 /** The band a card's heading stands on: the ground of a page's band, its hat field behind the heading. */
-const CARD_BAND = { position: 'relative', overflow: 'hidden', isolation: 'isolate', background: 'var(--mrx-surface-chrome)' } as const;
+const CARD_BAND = { position: 'relative', overflow: 'hidden', isolation: 'isolate', background: 'var(--mrx-surface-chrome)', transition: 'filter 120ms ease' } as const;
 
 /** How long a card takes to turn from green to red, in days. */
 const AGE_SPAN = 28;
@@ -345,12 +353,12 @@ const AGE_SPAN = 28;
 /**
  * The tint of a card's band by how long it has been on the board: green when added today, through
  * yellow, to red at `AGE_SPAN` days and after. A done card, or one whose file says nothing of when
- * it was made, is the neutral grey.
+ * it was made, is grey. All are dark, so the tint stays behind the title rather than over it.
  */
-const ageColor = (item: TodoItem): string | undefined => {
-  if (item.done || !item.added) return undefined;
+const ageColor = (item: TodoItem): string => {
+  if (item.done || !item.added) return 'hsl(220 8% 34%)';
   const days = Math.max(0, (Date.now() - Date.parse(item.added)) / 86_400_000);
-  return `hsl(${Math.round(130 * (1 - Math.min(1, days / AGE_SPAN)))} 65% 55%)`;
+  return `hsl(${Math.round(130 * (1 - Math.min(1, days / AGE_SPAN)))} 50% 32%)`;
 };
 
 /** When a card was added, in words, for its band's hover. */
@@ -365,7 +373,7 @@ const addedLabel = (item: TodoItem): string | undefined =>
 const CARD_FOOT = {
   position: 'absolute',
   inset: 'auto 0 0',
-  height: 28,
+  height: 14,
   overflow: 'hidden',
   pointerEvents: 'none',
   background: 'linear-gradient(180deg, transparent, color-mix(in srgb, var(--mrx-surface-chrome) 30%, transparent))',
