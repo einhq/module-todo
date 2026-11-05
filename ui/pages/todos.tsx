@@ -1,13 +1,14 @@
-import { ActionIcon, Avatar, Badge, Box, Button, Checkbox, Group, Menu, Paper, Popover, Stack, Tabs, Text, TextInput, Tooltip, UnstyledButton } from '@mantine/core';
+import { ActionIcon, Box, Button, Checkbox, Group, Menu, Paper, Popover, Stack, Tabs, Text, TextInput, Tooltip, UnstyledButton } from '@mantine/core';
 import { DatePicker } from '@mantine/dates';
-import { DragDropContext, Draggable, type DraggableProvidedDragHandleProps, Droppable, type DropResult } from '@hello-pangea/dnd';
-import { CoverAvatar, EmptyState, Markdown, PageBar, PageLoader, TablerIcon } from '@ein/ui/components';
+import { DragDropContext, Draggable, type DraggableLocation, type DraggableProvidedDragHandleProps, Droppable, type DropResult } from '@hello-pangea/dnd';
+import { EmptyState, Markdown, PageBar, PageLoader, TablerIcon } from '@ein/ui/components';
 import { useCommand, usePhone } from '@ein/ui/hooks';
-import { shq } from '@ein/ui/lib';
+import { plainMarkdown, shq } from '@ein/ui/lib';
 import { execCommand, notify, onOutsideEdit, openDialog } from '@ein/ui/signals';
-import { type FormEvent, type KeyboardEvent, type ReactNode, useEffect, useRef, useState } from 'react';
+import { type FocusEvent, type FormEvent, type KeyboardEvent, type MouseEvent, type ReactNode, useEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import type { TodoColumn, TodoItem, TodoList, TodoListing, TodoMember, TodoMine } from '../../lib/api.ts';
+import { Face } from '../components/Face.tsx';
 import { LinkChip } from '../components/LinkChip.tsx';
 
 export const handle = { fullBleed: true, title: 'Todo', pattern: 'mixed' };
@@ -126,35 +127,41 @@ export default function TodosPage() {
 }
 
 /**
- * The due day as a calendar button that opens a date picker; once a day is set the button says
- * it, and the picker can take it away again.
+ * The due day on a card: once set, a small button that says it, red once it has passed; before
+ * that a calendar. Either opens a date picker, which can take the day away again; `opened` is the
+ * card's, so that it keeps the button in sight while the picker is open.
  */
-function DueButton({ value, onChange, disabled }: { value: string; onChange: (day: string) => void; disabled?: boolean }) {
-  const [opened, setOpened] = useState(false);
+function DueControl({ value, overdue, onChange, opened, onOpened }: {
+  value: string;
+  overdue: boolean;
+  onChange: (day: string) => void;
+  opened: boolean;
+  onOpened: (opened: boolean) => void;
+}) {
   const pick = (day: string) => {
     onChange(day);
-    setOpened(false);
+    onOpened(false);
   };
   return (
-    <Popover opened={opened} onChange={setOpened} position='bottom-end' shadow='md'>
+    <Popover opened={opened} onChange={onOpened} position='bottom-end' shadow='md' withinPortal>
       <Popover.Target>
         {value
           ? (
             <Button
-              variant='light'
-              color='gray'
-              size='xs'
-              leftSection={<TablerIcon name='calendar' size={14} />}
-              onClick={() => setOpened((shown) => !shown)}
-              disabled={disabled}
+              variant={overdue ? 'filled' : 'light'}
+              color={overdue ? 'red' : 'gray'}
+              size='compact-xs'
+              leftSection={<TablerIcon name='calendar' size={12} />}
+              onClick={() => onOpened(!opened)}
+              aria-label={`Due ${dueLabel(value)}; change the day`}
             >
               {dueLabel(value)}
             </Button>
           )
           : (
-            <Tooltip label='Due'>
-              <ActionIcon variant='subtle' color='gray' size='lg' aria-label='Due' onClick={() => setOpened((shown) => !shown)} disabled={disabled}>
-                <TablerIcon name='calendar' size={18} />
+            <Tooltip label='Give it a due day'>
+              <ActionIcon variant='subtle' color='gray' size='sm' aria-label='Give it a due day' onClick={() => onOpened(!opened)}>
+                <TablerIcon name='calendar' size={15} />
               </ActionIcon>
             </Tooltip>
           )}
@@ -165,17 +172,6 @@ function DueButton({ value, onChange, disabled }: { value: string; onChange: (da
       </Popover.Dropdown>
     </Popover>
   );
-}
-
-/** A name's initials, for a face with no picture. */
-const initialsOf = (name: string): string => name.split(/\s+/).filter(Boolean).slice(0, 2).map((word) => word[0].toLocaleUpperCase()).join('') || '?';
-
-/** Someone as a small round face: their person's picture, else their initials. */
-function Face({ username, members, size = 26 }: { username: string; members: TodoMember[]; size?: number }) {
-  const member = members.find((each) => each.username === username);
-  const name = member?.name ?? username;
-  if (member?.personPath) return <CoverAvatar path={member.personPath} fallback={initialsOf(name)} size={size} radius='xl' alt={name} eager />;
-  return <Avatar size={size} radius='xl' name={name} color='initials' alt={name} />;
 }
 
 /**
@@ -230,17 +226,20 @@ function AssigneeButton({ item, members, onChanged }: { item: TodoItem; members:
 }
 
 /**
- * One item as a card: its title and whose it is, when it is due, what it links to, and, opened,
- * its notes and what can be done with it — give it a day, move it to another column, change it in
- * the item's dialog. `onSelect` gives it a box to pick it by; `aside` says more under the title.
+ * One item as a card. Its heading: the title, the due day once it has one, the pencil that opens
+ * the item's dialog, and the face of whoever is to do it; on a desktop the pencil, and the calendar
+ * of an item with no day, show while the card is hovered or focused. Under it the description's
+ * first line, which a click opens whole as markdown and another folds; `aside`; and last what the
+ * item links to. `onSelect` gives it a box to pick it by.
  */
-function TodoCard({ item, members, columns, expanded, onExpand, onChanged, dragHandle, dragging, selected, onSelect, aside }: {
+function TodoCard({ item, members, expanded, onExpand, highlighted, onChanged, dragHandle, dragging, selected, onSelect, aside }: {
   item: TodoItem;
   members: TodoMember[];
-  /** The board's columns to move it to; none on the Overview, where it can only be ticked off. */
-  columns: TodoColumn[];
+  /** Whether the description is open whole. */
   expanded: boolean;
   onExpand: (expanded: boolean) => void;
+  /** The card a link opened the page at: framed, and scrolled to. */
+  highlighted?: boolean;
   onChanged: () => void;
   dragHandle?: DraggableProvidedDragHandleProps | null;
   dragging?: boolean;
@@ -248,21 +247,26 @@ function TodoCard({ item, members, columns, expanded, onExpand, onChanged, dragH
   onSelect?: (selected: boolean) => void;
   aside?: ReactNode;
 }) {
+  const phone = usePhone();
   const ref = useRef<HTMLDivElement>(null);
+  const [hovered, setHovered] = useState(false);
+  const [focused, setFocused] = useState(false);
+  const [dueOpen, setDueOpen] = useState(false);
   const overdue = !item.done && item.due !== undefined && item.due < today();
+  const tools = phone || hovered || focused || dueOpen;
 
   useEffect(() => {
-    if (expanded) ref.current?.scrollIntoView({ block: 'nearest' });
+    if (highlighted) ref.current?.scrollIntoView({ block: 'nearest' });
   }, []);
 
-  const moveTo = async (column: string) => {
-    if (await run(`todo-move ${shq(item.path)} --column ${shq(column)}`)) onChanged();
-  };
-  const tick = async () => {
-    if (await run(`todo-done ${shq(item.path)}${item.done ? ' --undo' : ''}`)) onChanged();
-  };
   const setDue = async (day: string) => {
     if (await run(`todo-set ${shq(item.path)} ${day ? `--due ${shq(day)}` : '--no-due'}`)) onChanged();
+  };
+  const edit = () => openDialog(`/todos/item?path=${encodeURIComponent(item.path)}`);
+  const toggle = (event: MouseEvent<HTMLDivElement>) => {
+    // A link in the description goes where it points, and leaves the description as it is.
+    if ((event.target as HTMLElement).closest('a')) return;
+    onExpand(!expanded);
   };
 
   return (
@@ -274,91 +278,59 @@ function TodoCard({ item, members, columns, expanded, onExpand, onChanged, dragH
       shadow={dragging ? 'md' : undefined}
       bg='var(--mrx-surface-base)'
       {...dragHandle}
-      aria-expanded={expanded}
-      onKeyDown={(event: KeyboardEvent<HTMLDivElement>) => {
-        if (event.key === 'Enter' && event.target === event.currentTarget) onExpand(!expanded);
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      onFocusCapture={() => setFocused(true)}
+      onBlurCapture={(event: FocusEvent<HTMLDivElement>) => {
+        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setFocused(false);
       }}
-      style={{ cursor: dragHandle ? 'grab' : undefined, borderColor: expanded ? 'var(--mantine-primary-color-filled)' : undefined }}
+      onKeyDown={(event: KeyboardEvent<HTMLDivElement>) => {
+        if (event.key === 'Enter' && event.target === event.currentTarget) edit();
+      }}
+      style={{ cursor: dragHandle ? 'grab' : undefined, borderColor: highlighted ? 'var(--mantine-primary-color-filled)' : undefined }}
     >
-      <Group gap={8} wrap='nowrap' align='flex-start'>
+      <Group gap={6} wrap='nowrap' align='flex-start'>
         {onSelect && <Checkbox mt={3} size='xs' checked={selected ?? false} onChange={(event) => onSelect(event.currentTarget.checked)} aria-label={`Pick ${item.title}`} />}
-        {/* Not a button: a drag cannot start on one, and the title is most of what there is to grab. */}
-        <Box onClick={() => onExpand(!expanded)} style={{ flex: 1, minWidth: 0, cursor: 'pointer' }}>
-          <Text size='sm' fw={500} lineClamp={expanded ? undefined : 3} td={item.done ? 'line-through' : undefined} c={item.done ? 'dimmed' : undefined}>
-            {item.title}
-          </Text>
-        </Box>
-        <AssigneeButton item={item} members={members} onChanged={onChanged} />
-      </Group>
-      {(item.due || item.notes || aside) && (
-        <Group gap={6} mt={6} wrap='wrap'>
-          {item.due && (
-            <Badge size='sm' variant={overdue ? 'filled' : 'light'} color={overdue ? 'red' : 'gray'} tt='none' leftSection={<TablerIcon name='calendar' size={11} />}>
-              {dueLabel(item.due)}
-            </Badge>
+        <Text
+          size='sm'
+          fw={500}
+          lineClamp={3}
+          td={item.done ? 'line-through' : undefined}
+          c={item.done ? 'dimmed' : undefined}
+          title={item.done && (item.doneBy || item.doneAt) ? doneLabel(item, members) : undefined}
+          style={{ flex: 1, minWidth: 0 }}
+        >
+          {item.title}
+        </Text>
+        <Group gap={2} wrap='nowrap' style={{ flex: 'none' }}>
+          {(item.due || tools) && <DueControl value={item.due ?? ''} overdue={overdue} onChange={(day) => void setDue(day)} opened={dueOpen} onOpened={setDueOpen} />}
+          {tools && (
+            <Tooltip label='Change'>
+              <ActionIcon variant='subtle' color='gray' size='sm' aria-label={`Change ${item.title}`} onClick={edit}>
+                <TablerIcon name='pencil' size={15} />
+              </ActionIcon>
+            </Tooltip>
           )}
-          {!expanded && item.notes && <TablerIcon name='align-left' size={14} color='var(--mantine-color-dimmed)' aria-label='Has notes' />}
-          {aside}
+          <AssigneeButton item={item} members={members} onChanged={onChanged} />
         </Group>
+      </Group>
+      {item.description && (
+        // Not a button: a drag cannot start on one.
+        <Box mt={4} onClick={toggle} style={{ cursor: 'pointer' }} aria-expanded={expanded}>
+          {expanded
+            ? (
+              <Box fz='sm'>
+                <Markdown content={item.description} breaks />
+              </Box>
+            )
+            : <Text size='xs' c='dimmed' lineClamp={1}>{plainMarkdown(item.description)}</Text>}
+        </Box>
       )}
+      {aside && <Group gap={6} mt={6} wrap='wrap'>{aside}</Group>}
       {item.links && (
         <Group gap={6} mt={6}>
           {item.links.map((link) => <LinkChip key={link.path} link={link} />)}
         </Group>
-      )}
-      {expanded && (
-        <Stack gap='xs' mt='xs' style={{ cursor: 'auto' }}>
-          {item.notes
-            ? (
-              <Box fz='sm'>
-                <Markdown content={item.notes} breaks />
-              </Box>
-            )
-            : <Text size='xs' c='dimmed'>No notes.</Text>}
-          {item.done && (item.doneBy || item.doneAt) && <Text size='xs' c='dimmed'>{doneLabel(item, members)}</Text>}
-          <Group gap={4} justify='flex-end'>
-            {!item.done && <DueButton value={item.due ?? ''} onChange={(day) => void setDue(day)} />}
-            {columns.length > 0 && (
-              <Menu shadow='md' position='bottom-end' withinPortal>
-                <Menu.Target>
-                  <Tooltip label='Move to another column'>
-                    <ActionIcon variant='subtle' color='gray' size='lg' aria-label='Move to another column'>
-                      <TablerIcon name='arrows-right-left' size={18} />
-                    </ActionIcon>
-                  </Tooltip>
-                </Menu.Target>
-                <Menu.Dropdown>
-                  <Menu.Label>Move to</Menu.Label>
-                  {columns.filter((column) => column.path !== item.column).map((column) => (
-                    <Menu.Item key={column.path} onClick={() => void moveTo(column.path)}>{column.title}</Menu.Item>
-                  ))}
-                </Menu.Dropdown>
-              </Menu>
-            )}
-            <Tooltip label={item.done ? 'Not done' : 'Done'}>
-              <ActionIcon
-                variant='subtle'
-                color='gray'
-                size='lg'
-                aria-label={item.done ? `Mark ${item.title} not done` : `Mark ${item.title} done`}
-                onClick={() => void tick()}
-              >
-                <TablerIcon name={item.done ? 'arrow-back-up' : 'check'} size={18} />
-              </ActionIcon>
-            </Tooltip>
-            <Tooltip label='Change'>
-              <ActionIcon
-                variant='subtle'
-                color='gray'
-                size='lg'
-                aria-label={`Change ${item.title}`}
-                onClick={() => openDialog(`/todos/item?path=${encodeURIComponent(item.path)}`)}
-              >
-                <TablerIcon name='pencil' size={18} />
-              </ActionIcon>
-            </Tooltip>
-          </Group>
-        </Stack>
       )}
     </Paper>
   );
@@ -514,6 +486,27 @@ function AddCard({ list, onAdded }: { list: string; onAdded: () => void }) {
   );
 }
 
+/** Where a dragged card would land: its column, and the top and height of its frame there. */
+type Landing = { column: string; top: number; height: number };
+
+/**
+ * Where the card `draggableId` would land at `destination`, measured from the board as it is drawn:
+ * under the column's padding and the cards before that place, each with the column's gap, as tall
+ * as the card. Undefined when it is over no column.
+ */
+const landingOf = (draggableId: string, destination: DraggableLocation | null | undefined): Landing | null => {
+  if (!destination) return null;
+  const dragged = document.querySelector<HTMLElement>(`[data-rfd-draggable-id="${CSS.escape(draggableId)}"]`);
+  const column = document.querySelector<HTMLElement>(`[data-rfd-droppable-id="${CSS.escape(destination.droppableId)}"]`);
+  if (!dragged || !column) return null;
+  const style = getComputedStyle(column);
+  const gap = parseFloat(style.rowGap) || 0;
+  const others = [...column.querySelectorAll<HTMLElement>(':scope > [data-rfd-draggable-id]')].filter((each) => each !== dragged);
+  let top = parseFloat(style.paddingTop) || 0;
+  for (const each of others.slice(0, destination.index)) top += each.getBoundingClientRect().height + gap;
+  return { column: destination.droppableId, top, height: dragged.getBoundingClientRect().height };
+};
+
 /** The paths of a board's items, column by column, as the listing has them. */
 const arrangementOf = (listing: TodoListing): Record<string, string[]> =>
   Object.fromEntries(listing.columns.map((column) => [column.path, listing.items.filter((item) => item.column === column.path).map((item) => item.path)]));
@@ -530,6 +523,7 @@ function ListBoard({ path, highlight }: { path: string; highlight: string | null
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set(highlight ? [highlight] : []));
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const [archiving, setArchiving] = useState(false);
+  const [landing, setLanding] = useState<Landing | null>(null);
   useEffect(() => setDropped(null), [listing.data]);
   useEffect(() => onOutsideEdit(() => void listing.refetch()), [listing.refetch]);
 
@@ -562,6 +556,7 @@ function ListBoard({ path, highlight }: { path: string; highlight: string | null
     });
 
   const drop = async ({ source, destination, draggableId }: DropResult) => {
+    setLanding(null);
     if (!destination || (source.droppableId === destination.droppableId && source.index === destination.index)) return;
     const next = Object.fromEntries(Object.entries(arranged).map(([column, paths]) => [column, paths.filter((each) => each !== draggableId)]));
     const into = next[destination.droppableId] ?? [];
@@ -610,7 +605,11 @@ function ListBoard({ path, highlight }: { path: string; highlight: string | null
   );
 
   return (
-    <DragDropContext onDragEnd={(result) => void drop(result)}>
+    <DragDropContext
+      onDragStart={(start) => setLanding(landingOf(start.draggableId, start.source))}
+      onDragUpdate={(update) => setLanding(landingOf(update.draggableId, update.destination))}
+      onDragEnd={(result) => void drop(result)}
+    >
       <BoardScroller>
         {columns.map((column) => {
           const cards = cardsOf(column);
@@ -628,14 +627,14 @@ function ListBoard({ path, highlight }: { path: string; highlight: string | null
               footer={column.stage === 'todo' && <AddCard list={list.path} onAdded={changed} />}
             >
               <Droppable droppableId={column.path}>
-                {(droppable, state) => (
+                {(droppable) => (
                   <Stack
                     ref={droppable.innerRef}
                     {...droppable.droppableProps}
                     gap={6}
                     px={8}
                     pb={8}
-                    style={{ ...COLUMN_CARDS, background: state.isDraggingOver ? 'var(--mantine-primary-color-light)' : undefined }}
+                    style={{ ...COLUMN_CARDS, position: 'relative' }}
                   >
                     {cards.map((item, index) => (
                       <Draggable key={item.path} draggableId={item.path} index={index}>
@@ -644,8 +643,8 @@ function ListBoard({ path, highlight }: { path: string; highlight: string | null
                             <TodoCard
                               item={item}
                               members={people}
-                              columns={columns}
                               expanded={expanded.has(item.path)}
+                              highlighted={item.path === highlight}
                               onExpand={(open) => expand(item, open)}
                               onChanged={changed}
                               dragHandle={draggable.dragHandleProps}
@@ -657,6 +656,21 @@ function ListBoard({ path, highlight }: { path: string; highlight: string | null
                       </Draggable>
                     ))}
                     {droppable.placeholder}
+                    {landing?.column === column.path && (
+                      <Box
+                        aria-hidden
+                        style={{
+                          position: 'absolute',
+                          top: landing.top,
+                          left: 8,
+                          right: 8,
+                          height: landing.height,
+                          border: '2px dashed var(--mantine-color-dimmed)',
+                          borderRadius: 'var(--mantine-radius-sm)',
+                          pointerEvents: 'none',
+                        }}
+                      />
+                    )}
                   </Stack>
                 )}
               </Droppable>
@@ -703,7 +717,6 @@ function OverviewBoard({ lists, onOpen }: { lists: TodoList[]; onOpen: (path: st
                   key={item.path}
                   item={item}
                   members={[]}
-                  columns={[]}
                   expanded={expanded.has(item.path)}
                   onExpand={(open) =>
                     setExpanded((shown) => {

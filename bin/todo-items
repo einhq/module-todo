@@ -29,7 +29,7 @@ todoItems.spec = {
   flags: [],
   examples: ['todo-items /groups/users/todos/Shopping'],
   returns:
-    'The list (path, title, group, open, total), its columns (path, title, stage) and their items column by column (path, column, title, notes, done, doneAt, doneBy, due, assignee, order, links).',
+    'The list (path, title, group, open, total), its columns (path, title, stage) and their items column by column (path, column, title, description, done, doneAt, doneBy, due, assignee, order, links).',
 };
 
 export default todoItems;

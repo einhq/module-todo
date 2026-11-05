@@ -38,7 +38,7 @@ export type TodoItem = {
   column: string;
   title: string;
   /** What the file says after its title. */
-  notes?: string;
+  description?: string;
   /** Whether it is in its list's `done/` or `archived/`. */
   done: boolean;
   /** When it was marked done, as an ISO timestamp, when its file says so. */

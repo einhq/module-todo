@@ -4,7 +4,7 @@
  * A list is a directory in `todos/` of a home: a reader's own in `~/todos`, which only they may
  * enter, a group's in `/groups/<group>/todos`, which every member may read and write and nobody
  * else sees. Its name is its title. An item is a markdown file in the list: YAML front matter for
- * `due`, `assignee`, `done` and `done-by`, the first `# heading` its title and the rest its notes.
+ * `due`, `assignee`, `done` and `done-by`, the first `# heading` its title and the rest its description.
  * The file is named for when it was added unless someone names it otherwise. The softlinks the
  * file holds as children are what the item is about: a picture, an album.
  *
@@ -140,8 +140,8 @@ const renderItem = ({ meta, body }: ItemDoc): string => {
 /** The body with its title as the first heading, the one there replaced or a new one put first. */
 const withTitle = (body: string, title: string): string => HEADING.test(body) ? body.replace(HEADING, () => `# ${title}`) : `# ${title}\n\n${body.replace(/^\s+/, '')}`;
 
-/** The body with `notes` after its heading in place of what was there. */
-const withNotes = (title: string, notes: string): string => `# ${title}\n${notes.trim() ? `\n${notes.trim()}\n` : ''}`;
+/** The body with `description` after its heading in place of what was there. */
+const withDescription = (title: string, description: string): string => `# ${title}\n${description.trim() ? `\n${description.trim()}\n` : ''}`;
 
 const dayOf = (value: unknown): string | undefined => {
   if (value instanceof Date && !Number.isNaN(value.getTime())) return value.toISOString().slice(0, 10);
@@ -166,7 +166,7 @@ type Place = { list: string; column: string; done: boolean };
 
 const itemOf = ({ list, column, done }: Place, path: string, doc: ItemDoc, links: TodoLink[]): TodoItem => {
   const heading = HEADING.exec(doc.body);
-  const notes = (heading ? doc.body.replace(HEADING, '') : doc.body).trim();
+  const description = (heading ? doc.body.replace(HEADING, '') : doc.body).trim();
   const due = dayOf(doc.meta.due);
   const assignee = textOf(doc.meta.assignee);
   const doneAt = done ? timeOf(doc.meta.done) : undefined;
@@ -177,7 +177,7 @@ const itemOf = ({ list, column, done }: Place, path: string, doc: ItemDoc, links
     list,
     column,
     title: heading?.[1].trim() || stem(basename(path)),
-    ...(notes ? { notes } : {}),
+    ...(description ? { description } : {}),
     done,
     ...(doneAt ? { doneAt } : {}),
     ...(doneBy ? { doneBy } : {}),
@@ -604,9 +604,9 @@ export const moveItem = async (cmd: Command, arg: string, target: MoveTarget): P
 };
 
 /** The changes `todo-set` makes; null takes a field away. */
-export type ItemChange = { title?: string; notes?: string; due?: string | null; assignee?: string | null };
+export type ItemChange = { title?: string; description?: string; due?: string | null; assignee?: string | null };
 
-/** Change the item at `arg`: its title, notes, due day or assignee, the rest of its text kept. */
+/** Change the item at `arg`: its title, description, due day or assignee, the rest of its text kept. */
 export const updateItem = async (cmd: Command, arg: string, change: ItemChange): Promise<TodoItem> => {
   const { item, doc } = await itemAt(cmd, arg);
   const meta = { ...doc.meta };
@@ -615,7 +615,7 @@ export const updateItem = async (cmd: Command, arg: string, change: ItemChange):
     if (!change.title.trim()) throw new TodoError('an item needs a title');
     body = withTitle(body, change.title.trim());
   }
-  if (change.notes !== undefined) body = withNotes(change.title?.trim() || item.title, change.notes);
+  if (change.description !== undefined) body = withDescription(change.title?.trim() || item.title, change.description);
   if (change.due === null) delete meta.due;
   else if (change.due !== undefined) meta.due = dueDay(change.due);
   if (change.assignee === null) delete meta.assignee;

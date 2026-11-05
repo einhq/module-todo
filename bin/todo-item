@@ -1,5 +1,5 @@
 #!ts
-/** todo-item — one todo item: its title, notes, due day, assignee, column and links. */
+/** todo-item — one todo item: its title, description, due day, assignee, column and links. */
 import type { CmdReturn, Command } from '@ein/client';
 import type { TodoItem } from '@todo/api';
 import { fail, itemLine, readItem } from '@todo/store';
@@ -10,7 +10,7 @@ const todoItem = async (cmd: Command): CmdReturn => {
     if (cmd.json) await cmd.writeJSON(item satisfies TodoItem);
     else {
       await cmd.writeLn(itemLine(item));
-      if (item.notes) await cmd.writeLn(`\n${item.notes}`);
+      if (item.description) await cmd.writeLn(`\n${item.description}`);
       for (const link of item.links ?? []) await cmd.writeLn(`${link.name} -> ${link.target}`);
     }
     return 0;
@@ -22,11 +22,11 @@ const todoItem = async (cmd: Command): CmdReturn => {
 todoItem.spec = {
   name: 'todo-item',
   effect: 'read' as const,
-  description: 'Show one todo item: its title, notes, due day, who is to do it, its column and its links',
+  description: 'Show one todo item: its title, description, due day, who is to do it, its column and its links',
   args: [{ name: 'item', type: 'path' as const, description: 'the item, by its path' }],
   flags: [],
   examples: ['todo-item /groups/users/todos/Shopping/2026-11-05-140322.md'],
-  returns: 'The item: path, list, column, title, notes, done, doneAt, doneBy, due, assignee, order and links.',
+  returns: 'The item: path, list, column, title, description, done, doneAt, doneBy, due, assignee, order and links.',
 };
 
 export default todoItem;

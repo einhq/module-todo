@@ -68,10 +68,12 @@ Deno.test({ name: 'todo lists', sanitizeResources: false, sanitizeOps: false }, 
     await t.step('a file written by hand is an item whatever its name, its front matter read', async () => {
       await bo.execString(`printf '%s\\n' '---' 'due: 2026-11-30' '---' '# Candles' '' 'Unscented, for the table.' > ${shopping}/candles.md`);
       const candles = (await anna.execJson<TodoListing>(`todo-items ${shopping}`)).items.find((item) => item.path.endsWith('/candles.md'));
-      assertEquals([candles?.title, candles?.due, candles?.notes, candles?.done], ['Candles', '2026-11-30', 'Unscented, for the table.', false]);
-      assertEquals((await bo.execJson<TodoItem>(`todo-item ${shopping}/candles.md`)).notes, 'Unscented, for the table.');
+      assertEquals([candles?.title, candles?.due, candles?.description, candles?.done], ['Candles', '2026-11-30', 'Unscented, for the table.', false]);
+      assertEquals((await bo.execJson<TodoItem>(`todo-item ${shopping}/candles.md`)).description, 'Unscented, for the table.');
       const changed = await anna.execJson<TodoItem>(`todo-set ${shopping}/candles.md --title 'Tall candles'`);
-      assertEquals([changed.title, changed.notes, changed.due], ['Tall candles', 'Unscented, for the table.', '2026-11-30']);
+      assertEquals([changed.title, changed.description, changed.due], ['Tall candles', 'Unscented, for the table.', '2026-11-30']);
+      const described = await anna.execJson<TodoItem>(`todo-set ${shopping}/candles.md --description 'Tall and *unscented*.'`);
+      assertEquals(await anna.execString(`cat ${described.path}`), '---\ndue: 2026-11-30\n---\n# Tall candles\n\nTall and *unscented*.\n');
       await bo.execString(`rm ${shopping}/candles.md`);
     });
 
@@ -175,7 +177,9 @@ Deno.test({ name: 'todo lists', sanitizeResources: false, sanitizeOps: false }, 
       // rm of a link leaves the picture where it was.
       assertEquals(done.links?.map((link) => [link.target, link.type]), [['/groups/family/pictures/beach.jpg', 'file']]);
       await assertRejects(() => anna.execJson(`todo-link ${done.path} /groups/family/pictures/nothing.jpg`));
+      // Deleting the item takes its links with it and leaves what they point at.
       await bo.execString(`rm -r ${done.path}`);
+      assertEquals(await bo.execJson<string[]>('ls /groups/family/pictures'), ['beach.jpg']);
     });
 
     await t.step("todo-mine is what is given to one, and one's own lists' items given to nobody", async () => {

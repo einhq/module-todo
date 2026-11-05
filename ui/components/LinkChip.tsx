@@ -1,5 +1,6 @@
 import { CloseButton, Group, Text, Tooltip, UnstyledButton } from '@mantine/core';
 import { TablerIcon } from '@ein/ui/components';
+import { useAlbumCover, useCover } from '@ein/ui/hooks';
 import { fileUrl, lightboxRoute, thumbnailUrl } from '@ein/ui/lib';
 import { openFullscreen, openRoute } from '@ein/ui/signals';
 import { useState } from 'react';
@@ -16,14 +17,39 @@ const linkIcon = (link: TodoLink): string => {
   return ({ album: 'library-photo', directory: 'folder', person: 'user', location: 'map-pin' } as Record<string, string>)[link.type] ?? 'file';
 };
 
+/** The size of a link's picture. */
+const COVER = 28;
+
 /**
- * What an item is about: a thumbnail or a glyph, and the link's name. It opens what it points at —
+ * The picture of what a link points at: a picture's own thumbnail, an album's cover or first
+ * picture, the cover of a person, a place or a device; its glyph when it has none or it fails.
+ */
+function LinkCover({ link }: { link: TodoLink }) {
+  const [broken, setBroken] = useState(false);
+  const media = isMedia(link);
+  const album = useAlbumCover({ path: link.target, hasFilesDir: true }, link.type === 'album');
+  const other = useCover(link.target, !!link.type && !media && link.type !== 'album' && link.type !== 'file' && link.type !== 'directory');
+  const src = media ? thumbnailUrl(link.target, true) : link.type === 'album' ? album.coverUrl ?? album.coverFallbackUrl : other.coverUrl;
+  if (!src || broken) return <TablerIcon name={linkIcon(link)} size={16} color={link.type ? undefined : 'var(--mantine-color-red-filled)'} />;
+  return (
+    <img
+      src={src}
+      alt=''
+      width={COVER}
+      height={COVER}
+      onError={() => setBroken(true)}
+      style={{ width: COVER, height: COVER, objectFit: 'cover', borderRadius: 4, display: 'block', flexShrink: 0 }}
+    />
+  );
+}
+
+/**
+ * What an item is about: its cover or a glyph, and the link's name. It opens what it points at —
  * the page a module gives its type, the lightbox for a picture, or the file itself — and with
  * `onRemove` has a cross that takes the link away.
  */
 export function LinkChip({ link, onRemove }: { link: TodoLink; onRemove?: () => void }) {
   const navigate = useNavigate();
-  const [broken, setBroken] = useState(false);
   const open = () => {
     if (!link.type) return;
     const route = openRoute(link.type, link.target);
@@ -42,18 +68,7 @@ export function LinkChip({ link, onRemove }: { link: TodoLink; onRemove?: () => 
     >
       <Tooltip label={link.type ? link.target : `${link.target}: gone, or not yours to see`}>
         <UnstyledButton onClick={open} disabled={!link.type} style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
-          {isMedia(link) && !broken
-            ? (
-              <img
-                src={thumbnailUrl(link.target, true)}
-                alt=''
-                width={28}
-                height={28}
-                onError={() => setBroken(true)}
-                style={{ width: 28, height: 28, objectFit: 'cover', borderRadius: 4, display: 'block', flexShrink: 0 }}
-              />
-            )
-            : <TablerIcon name={linkIcon(link)} size={16} color={link.type ? undefined : 'var(--mantine-color-red-filled)'} />}
+          <LinkCover link={link} />
           <Text size='xs' truncate c={link.type ? undefined : 'dimmed'}>{link.name}</Text>
         </UnstyledButton>
       </Tooltip>

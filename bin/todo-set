@@ -1,5 +1,5 @@
 #!ts
-/** todo-set — change an item's title, notes, due day or assignee. */
+/** todo-set — change an item's title, description, due day or assignee. */
 import type { CmdReturn, Command } from '@ein/client';
 import { collectUnknownFlags, parseArgs, reportUnknownFlags } from '@ein/client';
 import type { TodoItem } from '@todo/api';
@@ -7,19 +7,19 @@ import { fail, type ItemChange, itemLine, TodoError, updateItem } from '@todo/st
 
 const todoSet = async (cmd: Command): CmdReturn => {
   const unknown: string[] = [];
-  const flags = parseArgs(cmd.args, { string: ['title', 'notes', 'due', 'assignee'], boolean: ['no-due', 'no-assignee'], unknown: collectUnknownFlags(unknown) });
+  const flags = parseArgs(cmd.args, { string: ['title', 'description', 'due', 'assignee'], boolean: ['no-due', 'no-assignee'], unknown: collectUnknownFlags(unknown) });
   if (await reportUnknownFlags(cmd, unknown)) return 1;
   try {
     const change: ItemChange = {};
     if (flags.title !== undefined) change.title = flags.title;
-    if (flags.notes !== undefined) change.notes = flags.notes;
+    if (flags.description !== undefined) change.description = flags.description;
     if (flags.due !== undefined && flags['no-due']) throw new TodoError('--due and --no-due say opposite things');
     if (flags.assignee !== undefined && flags['no-assignee']) throw new TodoError('--assignee and --no-assignee say opposite things');
     if (flags.due !== undefined) change.due = flags.due;
     if (flags['no-due']) change.due = null;
     if (flags.assignee !== undefined) change.assignee = flags.assignee;
     if (flags['no-assignee']) change.assignee = null;
-    if (Object.keys(change).length === 0) throw new TodoError('nothing to change: give --title, --notes, --due, --no-due, --assignee or --no-assignee');
+    if (Object.keys(change).length === 0) throw new TodoError('nothing to change: give --title, --description, --due, --no-due, --assignee or --no-assignee');
 
     const changed = await updateItem(cmd, flags._[0] === undefined ? '' : String(flags._[0]), change);
     if (cmd.json) await cmd.writeJSON(changed satisfies TodoItem);
@@ -33,11 +33,11 @@ const todoSet = async (cmd: Command): CmdReturn => {
 todoSet.spec = {
   name: 'todo-set',
   effect: 'write' as const,
-  description: "Change a todo item's title, its notes, the day it is due, or who is to do it",
+  description: "Change a todo item's title, its description, the day it is due, or who is to do it",
   args: [{ name: 'item', type: 'path' as const, description: 'the item, by its path' }],
   flags: [
     { name: 'title', type: 'string' as const, description: 'its new title' },
-    { name: 'notes', type: 'string' as const, description: 'what the file says under the title, in place of what it said; empty for none' },
+    { name: 'description', type: 'string' as const, description: 'what the file says under the title, in markdown, in place of what it said; empty for none' },
     { name: 'due', type: 'string' as const, description: 'the day it is due, as YYYY-MM-DD' },
     { name: 'no-due', type: 'bool' as const, description: 'it is due on no particular day' },
     { name: 'assignee', type: 'user' as const, description: "who is to do it: a member of the list's group, or you on a list of your own" },
