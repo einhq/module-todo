@@ -39,9 +39,6 @@ const run = async (command: string): Promise<boolean> => {
   }
 };
 
-/** The bar's round buttons: finger-sized on a phone, as the app header's are. */
-const BAR_BUTTON = { size: 36, icon: 22 };
-
 /** The tab of what is the reader's on every list; every other tab's value is a list's path. */
 const OVERVIEW = 'overview';
 
@@ -79,28 +76,12 @@ export default function TodosPage() {
         <PageBar
           title='Todo'
           pattern='mixed'
-          controls={
-            <Menu shadow='md' position='bottom-end' withinPortal>
-              <Menu.Target>
-                <Tooltip label='More'>
-                  <ActionIcon variant='subtle' size={phone ? BAR_BUTTON.size : undefined} aria-label='More'>
-                    <TablerIcon name='dots' size={phone ? BAR_BUTTON.icon : 17} />
-                  </ActionIcon>
-                </Tooltip>
-              </Menu.Target>
-              <Menu.Dropdown>
-                <Menu.Item leftSection={<TablerIcon name='list-check' size={16} />} onClick={() => openDialog('/todos/new-list')}>New list</Menu.Item>
-                {listPath && (
-                  <Menu.Item
-                    leftSection={<TablerIcon name='layout-columns' size={16} />}
-                    onClick={() => openDialog(`/todos/new-column?list=${encodeURIComponent(listPath)}`)}
-                  >
-                    New column
-                  </Menu.Item>
-                )}
-              </Menu.Dropdown>
-            </Menu>
-          }
+          actions={{
+            items: [
+              { label: 'New list', icon: 'list-check', onClick: () => openDialog('/todos/new-list') },
+              ...(listPath ? [{ label: 'New column', icon: 'layout-columns', onClick: () => openDialog(`/todos/new-column?list=${encodeURIComponent(listPath)}`) }] : []),
+            ],
+          }}
           tabs={
             <Tabs.List>
               {/* On a phone a tab with an icon shows only the icon unless it is the open one, which tells no list from another. */}
@@ -352,18 +333,23 @@ const doneLabel = (item: TodoItem, members: TodoMember[]): string => {
 /** The board's scroller: its columns side by side, sharing its width and filling its height; sideways when they do not fit. */
 function BoardScroller({ children }: { children: ReactNode }) {
   return (
-    <Box h='100%' style={{ overflowX: 'auto', overflowY: 'hidden' }}>
-      <Box p='md' h='100%' style={{ display: 'flex', gap: 12, alignItems: 'stretch', boxSizing: 'border-box' }}>{children}</Box>
+    <Box p='md' h='100%' style={{ boxSizing: 'border-box' }}>
+      {/* One rounded frame; the columns inside it meet edge to edge, and it clips their outer corners. */}
+      <Box h='100%' style={{ display: 'flex', alignItems: 'stretch', overflowX: 'auto', overflowY: 'hidden', borderRadius: 'var(--mantine-radius-md)' }}>{children}</Box>
     </Box>
   );
 }
 
+/** The shades the columns take in turn, so that each stands apart from the next without a gap. */
+const COLUMN_SHADES = ['var(--mrx-surface-raised)', 'color-mix(in srgb, var(--mrx-surface-raised) 50%, var(--mrx-surface-base))'];
+
 /**
- * A column's frame: its heading over its cards, which scroll on their own, and a `footer` under
- * them that stays in sight. Columns share the board's width, none narrower than 260px; a phone
- * shows one at a time with the next peeking in.
+ * A column: its heading over its cards, which scroll on their own, and a `footer` under them that
+ * stays in sight, in the shade of its place `index` on the board. Columns share the board's width,
+ * none narrower than 260px; a phone shows one at a time with the next peeking in.
  */
-function ColumnFrame({ title, count, controls, footer, children }: {
+function ColumnFrame({ index, title, count, controls, footer, children }: {
+  index: number;
   title: string;
   count: number;
   controls?: ReactNode;
@@ -373,8 +359,8 @@ function ColumnFrame({ title, count, controls, footer, children }: {
   const phone = usePhone();
   return (
     <Paper
-      radius='md'
-      bg='var(--mrx-surface-raised)'
+      radius={0}
+      bg={COLUMN_SHADES[index % COLUMN_SHADES.length]}
       style={{ display: 'flex', flexDirection: 'column', minHeight: 0, ...(phone ? { flex: 'none', width: 'calc(100vw - 64px)' } : { flex: '1 0 260px' }) }}
     >
       <Group gap='xs' wrap='nowrap' px='sm' py={8} style={{ flex: 'none' }}>
@@ -614,11 +600,12 @@ function ListBoard({ path, highlight }: { path: string; highlight: string | null
       onDragEnd={(result) => void drop(result)}
     >
       <BoardScroller>
-        {columns.map((column) => {
+        {columns.map((column, index) => {
           const cards = cardsOf(column);
           return (
             <ColumnFrame
               key={column.path}
+              index={index}
               title={column.title}
               count={cards.length}
               controls={
@@ -716,10 +703,10 @@ function OverviewBoard({ lists, onOpen }: { lists: TodoList[]; onOpen: (path: st
   const stages: { title: string; stage: TodoMine['stage'] }[] = [{ title: 'Todo', stage: 'todo' }, { title: 'In progress', stage: 'doing' }];
   return (
     <BoardScroller>
-      {stages.map(({ title, stage }) => {
+      {stages.map(({ title, stage }, index) => {
         const cards = items.filter((item) => item.stage === stage);
         return (
-          <ColumnFrame key={stage} title={title} count={cards.length}>
+          <ColumnFrame key={stage} index={index} title={title} count={cards.length}>
             <Stack gap={6} px={8} pb={8} style={COLUMN_CARDS}>
               {cards.length === 0 && <Text size='xs' c='dimmed' px={4}>Nothing here.</Text>}
               {cards.map((item) => (

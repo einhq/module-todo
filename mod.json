@@ -3,7 +3,7 @@
   "version": "0.5.2",
   "description": "Todo lists, personal or shared within a group: items with a due date and someone to do them, shown on Home when they fall due",
   "license": "Elastic-2.0, with an added permission (LICENSE)",
-  "coreApi": "^0.12.0",
+  "coreApi": "^0.12.1",
   "exports": {
     "./api": "./lib/api.ts"
   },
