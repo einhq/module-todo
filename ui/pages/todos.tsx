@@ -444,7 +444,7 @@ const doneLabel = (item: TodoItem, members: TodoMember[]): string => {
 };
 
 /**
- * The board: all of the page under the bar, its columns side by side sharing its width and filling
+ * The board: all of the page under the bar, on the page's own ground as the open tab is, its columns side by side sharing its width and filling
  * its height, sideways when they do not fit; on a phone stacked, the board scrolling down as one.
  */
 function BoardScroller({ children }: { children: ReactNode }) {
@@ -452,7 +452,6 @@ function BoardScroller({ children }: { children: ReactNode }) {
   return (
     <Box
       h='100%'
-      bg='var(--mrx-surface-raised)'
       style={phone ? { overflowY: 'auto' } : { display: 'flex', alignItems: 'stretch', overflowX: 'auto', overflowY: 'hidden' }}
     >
       {children}
@@ -492,18 +491,59 @@ function ColumnFrame({ index, title, count, controls, footer, children }: {
   );
 }
 
-/** The style of a column's cards: side by side they take what the heading and footer leave and scroll there; stacked, they take their own height. */
-const columnCards = (phone: boolean): CSSProperties => phone ? { position: 'relative', minHeight: 48 } : { flex: 1, minHeight: 0, overflowY: 'auto', position: 'relative' };
+/**
+ * The style of a column's cards: side by side they take what the heading and footer leave and
+ * scroll there, the scrollbar's room kept so that a card or frame dropped in does not narrow them;
+ * stacked, they take their own height.
+ */
+const columnCards = (phone: boolean): CSSProperties =>
+  phone ? { position: 'relative', minHeight: 48 } : { flex: 1, minHeight: 0, overflowY: 'auto', scrollbarGutter: 'stable', position: 'relative' };
 
-/** What a drop target in the phone's panel is called: the column's own id after this. */
-const PANEL_TARGET = 'panel:';
+/** One of the phone's panel's targets: a column by name; `disabled` takes no drop. */
+type PanelTarget = { id: string; title: string; disabled?: boolean };
+
+/**
+ * The panel target under the pointer or finger while `lifted`, as a ref the drop reads and as
+ * state the panel lights by. It is found from where the pointer is, not from where the drag
+ * library places the card, since its estimate for targets fixed on the screen is off by tens of
+ * pixels; a finger on a name is what is meant.
+ */
+function usePanelTarget(lifted: boolean): { over: string | null; overRef: { current: string | null } } {
+  const [over, setOver] = useState<string | null>(null);
+  const overRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!lifted) {
+      overRef.current = null;
+      setOver(null);
+      return;
+    }
+    const at = (x: number, y: number) => {
+      const tile = [...document.querySelectorAll<HTMLElement>('[data-panel-target]')].find((each) => {
+        const box = each.getBoundingClientRect();
+        return x >= box.left && x <= box.right && y >= box.top && y <= box.bottom;
+      });
+      const id = tile && tile.dataset.disabled === undefined ? tile.dataset.panelTarget ?? null : null;
+      overRef.current = id;
+      setOver(id);
+    };
+    const onMouse = (event: globalThis.MouseEvent) => at(event.clientX, event.clientY);
+    const onTouch = (event: TouchEvent) => event.touches[0] && at(event.touches[0].clientX, event.touches[0].clientY);
+    globalThis.addEventListener('mousemove', onMouse);
+    globalThis.addEventListener('touchmove', onTouch);
+    return () => {
+      globalThis.removeEventListener('mousemove', onMouse);
+      globalThis.removeEventListener('touchmove', onTouch);
+    };
+  }, [lifted]);
+  return { over, overRef };
+}
 
 /**
  * On a phone, while a card is lifted, a panel at the foot of the screen with a target for every
- * column, by name: a card dropped on one goes to the end of that column, with no dragging down the
- * stacked board. A target `disabled` takes no drop and is shown faded.
+ * column, by name: a card let go over one goes to the end of that column, with no dragging down the
+ * stacked board. `over` is the one under the pointer, lit; a `disabled` one is faded and takes none.
  */
-function DropPanel({ targets }: { targets: { id: string; title: string; disabled?: boolean }[] }) {
+function DropPanel({ targets, over }: { targets: PanelTarget[]; over: string | null }) {
   return (
     <Box
       p='sm'
@@ -521,25 +561,21 @@ function DropPanel({ targets }: { targets: { id: string; title: string; disabled
       }}
     >
       {targets.map((target) => (
-        <Droppable key={target.id} droppableId={`${PANEL_TARGET}${target.id}`} isDropDisabled={target.disabled}>
-          {(droppable, state) => (
-            <Box
-              ref={droppable.innerRef}
-              {...droppable.droppableProps}
-              p='md'
-              style={{
-                border: `2px dashed ${state.isDraggingOver ? 'var(--mantine-primary-color-filled)' : 'var(--mantine-color-default-border)'}`,
-                borderRadius: 'var(--mantine-radius-md)',
-                background: state.isDraggingOver ? 'var(--mantine-primary-color-light)' : 'var(--mrx-surface-raised)',
-                opacity: target.disabled ? .4 : 1,
-                textAlign: 'center',
-              }}
-            >
-              {/* No placeholder: a card dropped here leaves the panel as it is. */}
-              <Text size='sm' fw={600} truncate>{target.title}</Text>
-            </Box>
-          )}
-        </Droppable>
+        <Box
+          key={target.id}
+          data-panel-target={target.id}
+          data-disabled={target.disabled || undefined}
+          p='md'
+          style={{
+            border: `2px dashed ${over === target.id ? 'var(--mantine-primary-color-filled)' : 'var(--mantine-color-default-border)'}`,
+            borderRadius: 'var(--mantine-radius-md)',
+            background: over === target.id ? 'var(--mantine-primary-color-light)' : 'var(--mrx-surface-raised)',
+            opacity: target.disabled ? .4 : 1,
+            textAlign: 'center',
+          }}
+        >
+          <Text size='sm' fw={600} truncate>{target.title}</Text>
+        </Box>
       ))}
     </Box>
   );
@@ -703,6 +739,7 @@ function LandingFrame({ landing }: { landing: Landing }) {
         left: 8,
         right: 8,
         height: landing.height,
+        boxSizing: 'border-box',
         border: '2px dashed var(--mantine-color-dimmed)',
         borderRadius: 'var(--mantine-radius-sm)',
         pointerEvents: 'none',
@@ -731,6 +768,7 @@ function ListBoard({ path, highlight }: { path: string; highlight: string | null
   const phone = usePhone();
   // Whether a card is lifted on a phone, which brings up the panel of columns to drop it on.
   const [lifted, setLifted] = useState(false);
+  const { over: overPanel, overRef: panelRef } = usePanelTarget(lifted);
   useEffect(() => setDropped(null), [listing.data]);
   useEffect(() => onOutsideEdit(() => void listing.refetch()), [listing.refetch]);
 
@@ -764,9 +802,9 @@ function ListBoard({ path, highlight }: { path: string; highlight: string | null
 
   const drop = async ({ source, destination: over, draggableId }: DropResult) => {
     setLanding(null);
+    // A card let go over the phone's panel goes to the end of the column it names.
+    const panel = panelRef.current;
     setLifted(false);
-    // A drop on the phone's panel goes to the end of that column.
-    const panel = over?.droppableId.startsWith(PANEL_TARGET) ? over.droppableId.slice(PANEL_TARGET.length) : undefined;
     const destination = panel ? { droppableId: panel, index: (arranged[panel] ?? []).filter((each) => each !== draggableId).length } : over;
     if (!destination || (source.droppableId === destination.droppableId && source.index === destination.index)) return;
     const next = Object.fromEntries(Object.entries(arranged).map(([column, paths]) => [column, paths.filter((each) => each !== draggableId)]));
@@ -822,7 +860,7 @@ function ListBoard({ path, highlight }: { path: string; highlight: string | null
       onDragUpdate={(update) => setLanding(landingOf(update.draggableId, update.destination))}
       onDragEnd={(result) => void drop(result)}
     >
-      {lifted && <DropPanel targets={columns.map((column) => ({ id: column.path, title: column.title }))} />}
+      {lifted && <DropPanel targets={columns.map((column) => ({ id: column.path, title: column.title }))} over={overPanel} />}
       <BoardScroller>
         {columns.map((column, index) => {
           const cards = cardsOf(column);
@@ -926,6 +964,7 @@ function OverviewBoard({ lists, onOpen }: { lists: TodoList[]; onOpen: (path: st
   const [dragList, setDragList] = useState<string | null>(null);
   const [landing, setLanding] = useState<Landing | null>(null);
   const phone = usePhone();
+  const { over: overPanel, overRef: panelRef } = usePanelTarget(phone && dragList !== null);
   useEffect(() => onOutsideEdit(() => void mine.refetch()), [mine.refetch]);
   useEffect(() => setDropped({}), [mine.data]);
   if (mine.loading && !mine.data) return <PageLoader />;
@@ -948,12 +987,11 @@ function OverviewBoard({ lists, onOpen }: { lists: TodoList[]; onOpen: (path: st
   const listOf = (path: string) => items.find((item) => item.path === path)?.list ?? null;
 
   const drop = async ({ source, destination, draggableId }: DropResult) => {
+    // A card let go over the phone's panel goes to the column it names.
+    const key = panelRef.current ?? destination?.droppableId;
     setDragList(null);
     setLanding(null);
-    if (!destination) return;
-    // A drop on the phone's panel names the column after its prefix.
-    const key = destination.droppableId.startsWith(PANEL_TARGET) ? destination.droppableId.slice(PANEL_TARGET.length) : destination.droppableId;
-    if (key === source.droppableId) return;
+    if (!key || key === source.droppableId) return;
     const list = listOf(draggableId);
     const target = columns.find((column) => column.key === key)?.paths.get(list ?? '');
     if (!target) return;
@@ -969,7 +1007,9 @@ function OverviewBoard({ lists, onOpen }: { lists: TodoList[]; onOpen: (path: st
       onDragUpdate={(update) => setLanding(update.destination?.droppableId === update.source.droppableId ? null : landingOf(update.draggableId, update.destination))}
       onDragEnd={(result) => void drop(result)}
     >
-      {phone && dragList !== null && <DropPanel targets={columns.map((column) => ({ id: column.key, title: column.title, disabled: !column.paths.has(dragList) }))} />}
+      {phone && dragList !== null && (
+        <DropPanel targets={columns.map((column) => ({ id: column.key, title: column.title, disabled: !column.paths.has(dragList) }))} over={overPanel} />
+      )}
       <BoardScroller>
         {columns.map((column, index) => {
           const cards = items.filter((item) => placed(item) === column.key);
