@@ -1,4 +1,4 @@
-import { ActionIcon, Badge, Box, Button, Checkbox, Group, Menu, Paper, Popover, Stack, Tabs, Text, TextInput, Tooltip } from '@mantine/core';
+import { ActionIcon, Badge, Box, Button, Checkbox, Group, Menu, Paper, Popover, Stack, Tabs, Text, Textarea, TextInput, Tooltip } from '@mantine/core';
 import { DatePicker } from '@mantine/dates';
 import {
   DragDropContext,
@@ -428,15 +428,15 @@ const CARD_BAND = {
 } as const;
 
 /**
- * A shade over a card's band, ground and tiles alike, behind the heading: near black at the left,
- * where the title is, giving way to the band's own colour towards the middle.
+ * A shade over a card's band, ground and tiles alike, behind the heading: near black over its
+ * left, where the title is, giving way to the band's own colour only towards its right edge.
  */
 const CARD_BAND_SHADE = {
   position: 'absolute',
   inset: 0,
   zIndex: -1,
   pointerEvents: 'none',
-  background: 'linear-gradient(90deg, rgb(0 0 0 / .8), rgb(0 0 0 / .35) 30%, transparent 55%)',
+  background: 'linear-gradient(90deg, rgb(0 0 0 / .85), rgb(0 0 0 / .7) 40%, rgb(0 0 0 / .3) 70%, transparent 90%)',
 } as const;
 
 /** The same dark edge for the heading's buttons and faces, which a text shadow does not reach. */
@@ -726,17 +726,35 @@ function ColumnMenu({ column, columns, count, onChanged, onOpen }: {
   );
 }
 
-/** The line at the foot of Todo that adds an item: Enter adds it and leaves the line for the next. */
-function AddCard({ list, onAdded }: { list: string; onAdded: () => void }) {
-  const [title, setTitle] = useState('');
-  const [busy, setBusy] = useState(false);
+/**
+ * What is typed into the add line as an item: the first line with anything on it the title, the
+ * lines after it the description, blank ones at its top and foot left out.
+ */
+const splitTyped = (text: string): { title: string; description: string } => {
+  const lines = text.split('\n');
+  const first = lines.findIndex((line) => line.trim());
+  const rest = lines.slice(first + 1);
+  while (rest.length > 0 && !rest[0].trim()) rest.shift();
+  while (rest.length > 0 && !rest[rest.length - 1].trim()) rest.pop();
+  return { title: first === -1 ? '' : lines[first].trim(), description: rest.join('\n') };
+};
 
-  const add = async (event: FormEvent) => {
-    event.preventDefault();
-    if (!title.trim()) return;
+/**
+ * The line at the foot of Todo that adds an item. It takes several lines, pasted or with
+ * Shift+Enter: the first is the title and the rest the description. Enter adds it and leaves the
+ * line for the next.
+ */
+function AddCard({ list, onAdded }: { list: string; onAdded: () => void }) {
+  const [text, setText] = useState('');
+  const [busy, setBusy] = useState(false);
+  const { title, description } = splitTyped(text);
+
+  const add = async (event?: FormEvent) => {
+    event?.preventDefault();
+    if (!title) return;
     setBusy(true);
-    if (await run(`todo-add ${shq(list)} ${shq(title.trim())}`)) {
-      setTitle('');
+    if (await run(`todo-add ${shq(list)} ${shq(title)}${description ? ` --description ${shq(description)}` : ''}`)) {
+      setText('');
       onAdded();
     }
     setBusy(false);
@@ -744,16 +762,25 @@ function AddCard({ list, onAdded }: { list: string; onAdded: () => void }) {
 
   return (
     <Box component='form' onSubmit={add}>
-      <TextInput
+      <Textarea
         size='sm'
         placeholder='Add an item'
-        value={title}
-        onChange={(event) => setTitle(event.currentTarget.value)}
+        autosize
+        minRows={1}
+        maxRows={8}
+        value={text}
+        onChange={(event) => setText(event.currentTarget.value)}
+        onKeyDown={(event) => {
+          if (event.key !== 'Enter' || event.shiftKey || event.nativeEvent.isComposing) return;
+          event.preventDefault();
+          void add();
+        }}
         disabled={busy}
-        aria-label='New item'
+        aria-label='New item: the first line its title, the rest its description'
+        title='Shift+Enter for a new line: the first line is the title, the rest the description'
         leftSection={<TablerIcon name='plus' size={14} />}
         rightSection={
-          <ActionIcon type='submit' variant='subtle' size='sm' loading={busy} disabled={!title.trim()} aria-label='Add'>
+          <ActionIcon type='submit' variant='subtle' size='sm' loading={busy} disabled={!title} aria-label='Add'>
             <TablerIcon name='corner-down-left' size={14} />
           </ActionIcon>
         }

@@ -498,8 +498,13 @@ const addedName = (): string => {
   return `${parts.year}-${parts.month}-${parts.day}-${parts.hour}${parts.minute}${parts.second}.md`;
 };
 
-/** Add an item titled `title` to the list at `list`, named for now. */
-export const addItem = async (cmd: Command, list: string, title: string, extra: { due?: string; assignee?: string; links?: string[] }): Promise<TodoItem> => {
+/** Add an item titled `title` to the list at `list`, named for now, with `description` under its title if it has one. */
+export const addItem = async (
+  cmd: Command,
+  list: string,
+  title: string,
+  extra: { description?: string; due?: string; assignee?: string; links?: string[] },
+): Promise<TodoItem> => {
   const name = title.trim();
   if (!name) throw new TodoError('an item needs a title');
   const meta: Record<string, unknown> = {};
@@ -509,7 +514,7 @@ export const addItem = async (cmd: Command, list: string, title: string, extra: 
   // The name is free in done/ too, so the item can be ticked off and back without being renamed.
   const file = await freeName(cmd, [list, `${list}/${DONE_DIR}`], addedName());
   await cmd.sys.vfs.create(cmd.access, 'file', list, file, { props: { tier: 'db' }, attrs: { name: file, mimetype: ITEM_MIMETYPE, size: 0 } });
-  await writeText(cmd, `${list}/${file}`, renderItem({ meta, body: `# ${name}\n` }));
+  await writeText(cmd, `${list}/${file}`, renderItem({ meta, body: withDescription(name, extra.description ?? '') }));
   await makeLinks(cmd, `${list}/${file}`, targets);
   return readItem(cmd, `${list}/${file}`);
 };
