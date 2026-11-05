@@ -170,13 +170,13 @@ function AssigneeButton({ item, members, onChanged }: { item: TodoItem; members:
   return (
     <Menu shadow='md' position='bottom-end' withinPortal>
       <Menu.Target>
-        <Tooltip label={who ? `${who}'s; give it to someone else` : 'Give it to someone'}>
+        <Tooltip label={who ? `Assigned to ${who}` : 'Assign to'}>
           <ActionIcon
             variant={item.assignee ? 'transparent' : 'subtle'}
             color='gray'
             radius='xl'
             size={26}
-            aria-label={who ? `Given to ${who}` : 'Give it to someone'}
+            aria-label={who ? `Assigned to ${who}` : 'Assign to'}
             style={item.assignee ? undefined : { border: '1px dashed var(--mantine-color-default-border)' }}
           >
             {face}
@@ -184,7 +184,7 @@ function AssigneeButton({ item, members, onChanged }: { item: TodoItem; members:
         </Tooltip>
       </Menu.Target>
       <Menu.Dropdown>
-        <Menu.Label>Who is to do it</Menu.Label>
+        <Menu.Label>Assign to</Menu.Label>
         {members.map((member) => (
           <Menu.Item
             key={member.username}
@@ -734,8 +734,8 @@ function OverviewBoard({ lists, onOpen }: { lists: TodoList[]; onOpen: (path: st
     return (
       <EmptyState title='Nothing left for you'>
         {lists.length === 0
-          ? "Make a list with New list in the bar's menu. Items given to you on any list, and those of your own lists given to nobody, gather here."
-          : 'Items given to you on any list, and those of your own lists given to nobody, gather here.'}
+          ? "Make a list with New list in the bar's menu. Items assigned to you on any list, and those of your own lists assigned to nobody, gather here."
+          : 'Items assigned to you on any list, and those of your own lists assigned to nobody, gather here.'}
       </EmptyState>
     );
   }
