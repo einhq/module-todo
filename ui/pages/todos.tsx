@@ -399,12 +399,12 @@ const CARD_EDGE_HIGHLIGHTED = 'var(--mantine-primary-color-filled)';
 /** A card's border while the pointer is over it, which also casts a shadow and brightens its heading. */
 const CARD_EDGE_HOVERED = 'var(--mantine-color-dark-2)';
 
-/** The band a card's heading stands on: the ground of a page's band, its hat field behind the heading. */
+/** The band a card's heading stands on: the raised surface, lighter than the board, its hat field behind the heading. */
 const CARD_BAND = {
   position: 'relative',
   overflow: 'hidden',
   isolation: 'isolate',
-  background: 'var(--mrx-surface-chrome)',
+  background: 'var(--mrx-surface-raised)',
   transition: 'filter 120ms ease',
   // A dark edge under the heading's light text and icons, so they read over any tile.
   textShadow: '0 1px 2px rgb(0 0 0 / .9)',
