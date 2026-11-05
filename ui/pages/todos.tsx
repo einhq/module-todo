@@ -272,7 +272,8 @@ function TodoCard({ item, members, expanded, onExpand, highlighted, onChanged, d
       style={{ cursor: dragHandle ? 'grab' : undefined, position: 'relative', overflow: 'hidden', borderColor: highlighted ? CARD_EDGE_HIGHLIGHTED : CARD_EDGE }}
     >
       {/* Top-aligned, so a title of several lines keeps its buttons by its first line; the margins centre that line, and the box, on the face (26px). */}
-      <Group gap={6} wrap='nowrap' align='flex-start' px='xs' py={6} bg={highlighted ? CARD_EDGE_HIGHLIGHTED : CARD_EDGE}>
+      <Group gap={6} wrap='nowrap' align='flex-start' px='xs' py={6} title={addedLabel(item)} style={CARD_BAND}>
+        <HatField pattern='neutral' kind='foot' color={ageColor(item)} />
         {onSelect && <Checkbox mt={5} size='xs' checked={selected ?? false} onChange={(event) => onSelect(event.currentTarget.checked)} aria-label={`Pick ${item.title}`} />}
         <Text
           size='sm'
@@ -331,9 +332,30 @@ function TodoCard({ item, members, expanded, onExpand, highlighted, onChanged, d
   );
 }
 
-/** A card's border, and the band its heading stands on. */
+/** A card's border; the accent for the card a link opened the page at. */
 const CARD_EDGE = 'var(--mantine-color-default-border)';
 const CARD_EDGE_HIGHLIGHTED = 'var(--mantine-primary-color-filled)';
+
+/** The band a card's heading stands on: the ground of a page's band, its hat field behind the heading. */
+const CARD_BAND = { position: 'relative', overflow: 'hidden', isolation: 'isolate', background: 'var(--mrx-surface-chrome)' } as const;
+
+/** How long a card takes to turn from green to red, in days. */
+const AGE_SPAN = 28;
+
+/**
+ * The tint of a card's band by how long it has been on the board: green when added today, through
+ * yellow, to red at `AGE_SPAN` days and after. A done card, or one whose file says nothing of when
+ * it was made, is the neutral grey.
+ */
+const ageColor = (item: TodoItem): string | undefined => {
+  if (item.done || !item.added) return undefined;
+  const days = Math.max(0, (Date.now() - Date.parse(item.added)) / 86_400_000);
+  return `hsl(${Math.round(130 * (1 - Math.min(1, days / AGE_SPAN)))} 65% 55%)`;
+};
+
+/** When a card was added, in words, for its band's hover. */
+const addedLabel = (item: TodoItem): string | undefined =>
+  item.added ? `Added ${new Date(item.added).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })}` : undefined;
 
 /**
  * The grey tiles fading up from a card's foot, as the sidebar's do, lower: behind what the card
@@ -343,7 +365,7 @@ const CARD_EDGE_HIGHLIGHTED = 'var(--mantine-primary-color-filled)';
 const CARD_FOOT = {
   position: 'absolute',
   inset: 'auto 0 0',
-  height: 56,
+  height: 28,
   overflow: 'hidden',
   pointerEvents: 'none',
   background: 'linear-gradient(180deg, transparent, color-mix(in srgb, var(--mrx-surface-chrome) 30%, transparent))',

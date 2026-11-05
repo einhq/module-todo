@@ -164,7 +164,8 @@ const orderOf = (value: unknown): number | undefined => typeof value === 'number
 /** Where an item is: its list, the column it is in, and whether that makes it done. */
 type Place = { list: string; column: string; done: boolean };
 
-const itemOf = ({ list, column, done }: Place, path: string, doc: ItemDoc, links: TodoLink[]): TodoItem => {
+/** An item as read: its place, its path, its text, its links, and when its file was made (ms). */
+const itemOf = ({ list, column, done }: Place, path: string, doc: ItemDoc, links: TodoLink[], born?: number): TodoItem => {
   const heading = HEADING.exec(doc.body);
   const description = (heading ? doc.body.replace(HEADING, '') : doc.body).trim();
   const due = dayOf(doc.meta.due);
@@ -178,6 +179,7 @@ const itemOf = ({ list, column, done }: Place, path: string, doc: ItemDoc, links
     column,
     title: heading?.[1].trim() || stem(basename(path)),
     ...(description ? { description } : {}),
+    ...(born ? { added: new Date(born).toISOString() } : {}),
     done,
     ...(doneAt ? { doneAt } : {}),
     ...(doneBy ? { doneBy } : {}),
@@ -238,7 +240,7 @@ const readItems = async (cmd: Command, place: Place, entries: NodeChildEntry<Fil
   const read = await Promise.all(items.map(async (entry) => {
     const path = `${dir}/${entry.name}`;
     const [text, links] = await Promise.all([readText(cmd, path), linksIn(cmd, path, childrenOf.get(path) ?? [])]);
-    return itemOf(place, path, parseItem(text), links);
+    return itemOf(place, path, parseItem(text), links, entry.node.props.birthtime?.timestamp);
   }));
   return read.sort(byOrder);
 };
@@ -450,7 +452,7 @@ const itemAt = async (cmd: Command, arg: string | undefined): Promise<{ item: To
   if (!place || !isItem({ node, name: basename(path), childCount: 0 })) throw new TodoError(`${path}: not a todo item`);
   const [text, entries] = await Promise.all([readText(cmd, path), children(cmd, path)]);
   const doc = parseItem(text);
-  return { item: itemOf(place, path, doc, await linksIn(cmd, path, entries)), doc };
+  return { item: itemOf(place, path, doc, await linksIn(cmd, path, entries), node.props.birthtime?.timestamp), doc };
 };
 
 /** The item `arg` names, a path; a `TodoError` when it is not an item the caller can read. */

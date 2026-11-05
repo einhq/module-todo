@@ -62,6 +62,8 @@ Deno.test({ name: 'todo lists', sanitizeResources: false, sanitizeOps: false }, 
     await t.step('an item is a markdown file named for when it was added, its title a heading', async () => {
       const [milk] = (await anna.execJson<TodoListing>(`todo-items ${shopping}`)).items;
       assertMatch(milk.path, /^\/groups\/family\/todos\/Shopping\/\d{4}-\d{2}-\d{2}-\d{6}\.md$/);
+      // When it was added is when its file was made.
+      assertEquals(Math.abs(Date.parse(milk.added ?? '') - Date.now()) < 60_000, true);
       assertEquals(await anna.execString(`cat ${milk.path}`), '# Milk\n');
     });
 
