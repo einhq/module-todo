@@ -25,7 +25,7 @@ import { CoverAvatar, EmptyState, Markdown, PageBar, PageLoader, TablerIcon } fr
 import { useCommand, usePhone } from '@ein/ui/hooks';
 import { fileUrl, lightboxRoute, shq, thumbnailUrl } from '@ein/ui/lib';
 import { execCommand, notify, openDialog, openFullscreen, openRoute } from '@ein/ui/signals';
-import { type FormEvent, type ReactNode, useEffect, useRef, useState } from 'react';
+import { type FormEvent, type KeyboardEvent, type ReactNode, useEffect, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import type { TodoColumn, TodoItem, TodoLink, TodoList, TodoListing, TodoMember, TodoMine } from '../../lib/api.ts';
 
@@ -109,13 +109,14 @@ export default function TodosPage() {
           }
           tabs={
             <Tabs.List>
-              <Tabs.Tab value={OVERVIEW} leftSection={<TablerIcon name='user-check' size={16} />}>Overview</Tabs.Tab>
+              {/* On a phone a tab with an icon shows only the icon unless it is the open one, which tells no list from another. */}
+              <Tabs.Tab value={OVERVIEW} leftSection={phone ? undefined : <TablerIcon name='user-check' size={16} />}>Overview</Tabs.Tab>
               {(lists.data ?? []).map((list) => (
                 <Tabs.Tab
                   key={list.path}
                   value={list.path}
                   title={list.group ? `Shared with ${list.group}` : 'Your own'}
-                  leftSection={<TablerIcon name={list.group ? 'users' : 'list-check'} size={16} />}
+                  leftSection={phone ? undefined : <TablerIcon name={list.group ? 'users' : 'list-check'} size={16} />}
                 >
                   {list.title}
                 </Tabs.Tab>
@@ -241,8 +242,9 @@ function Face({ username, members, size = 26 }: { username: string; members: Tod
 }
 
 /**
- * Whose an item is, as their face, or an empty one when it is nobody's; with `members` to choose
- * from, a menu that gives it to one of them or to nobody.
+ * Whose an item is, as their face, or an empty one when it is nobody's, with a menu that gives it
+ * to one of `members` or to nobody. Without members, as on the Overview, where every item is the
+ * reader's, there is nothing to show.
  */
 function AssigneeButton({ item, members, onChanged }: { item: TodoItem; members: TodoMember[]; onChanged: () => void }) {
   const who = members.find((member) => member.username === item.assignee)?.name ?? item.assignee;
@@ -250,15 +252,7 @@ function AssigneeButton({ item, members, onChanged }: { item: TodoItem; members:
     if (await run(`todo-set ${shq(item.path)} ${username ? `--assignee ${shq(username)}` : '--no-assignee'}`)) onChanged();
   };
   const face = item.assignee ? <Face username={item.assignee} members={members} /> : <TablerIcon name='user-plus' size={16} color='var(--mantine-color-dimmed)' />;
-  if (members.length === 0) {
-    return item.assignee
-      ? (
-        <Tooltip label={who}>
-          <Box style={{ display: 'flex' }}>{face}</Box>
-        </Tooltip>
-      )
-      : null;
-  }
+  if (members.length === 0) return null;
   return (
     <Menu shadow='md' position='bottom-end' withinPortal>
       <Menu.Target>
@@ -346,15 +340,20 @@ function TodoCard({ item, members, columns, expanded, onExpand, onChanged, dragH
       shadow={dragging ? 'md' : undefined}
       bg='var(--mrx-surface-base)'
       {...dragHandle}
+      aria-expanded={expanded}
+      onKeyDown={(event: KeyboardEvent<HTMLDivElement>) => {
+        if (event.key === 'Enter' && event.target === event.currentTarget) onExpand(!expanded);
+      }}
       style={{ cursor: dragHandle ? 'grab' : undefined, borderColor: expanded ? 'var(--mantine-primary-color-filled)' : undefined }}
     >
       <Group gap={8} wrap='nowrap' align='flex-start'>
         {onSelect && <Checkbox mt={3} size='xs' checked={selected ?? false} onChange={(event) => onSelect(event.currentTarget.checked)} aria-label={`Pick ${item.title}`} />}
-        <UnstyledButton onClick={() => onExpand(!expanded)} style={{ flex: 1, minWidth: 0 }} aria-expanded={expanded}>
+        {/* Not a button: a drag cannot start on one, and the title is most of what there is to grab. */}
+        <Box onClick={() => onExpand(!expanded)} style={{ flex: 1, minWidth: 0, cursor: 'pointer' }}>
           <Text size='sm' fw={500} lineClamp={expanded ? undefined : 3} td={item.done ? 'line-through' : undefined} c={item.done ? 'dimmed' : undefined}>
             {item.title}
           </Text>
-        </UnstyledButton>
+        </Box>
         <AssigneeButton item={item} members={members} onChanged={onChanged} />
       </Group>
       {(item.due || item.notes || item.links || aside) && (
