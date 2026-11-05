@@ -483,7 +483,7 @@ function TodoRow({ item, members, expanded, onExpand, highlighted, onChanged, st
         />
         <Box style={{ flex: 1, minWidth: 0 }}>
           <Group gap={6} wrap='nowrap' align='flex-start'>
-            {stage === 'doing' && !item.done && <Loader size={14} mt={5} style={{ flex: 'none' }} aria-label='Ongoing' />}
+            {stage === 'doing' && !item.done && <Loader type='oval' size={14} mt={5} style={{ flex: 'none' }} aria-label='Ongoing' />}
             <Text size='md' lineClamp={3} td={item.done ? 'line-through' : undefined} c={item.done ? 'dimmed' : undefined} style={{ flex: 1, minWidth: 0 }}>
               {prefix && (
                 <Text
