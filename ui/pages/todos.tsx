@@ -674,9 +674,10 @@ function BoardScroller({ footRoom = 0, children }: { footRoom?: number; children
 const COLUMN_RULE = '1px solid var(--mantine-color-default-border)';
 
 /**
- * A column: its heading — the title, how many cards it holds, `edit` beside them (on a desktop while
- * the heading is hovered or what `edit` opens is open, `editing`), `controls` at the right — a line
- * under it short of the column's edges, its cards, and a `footer` under them. It is ruled off from
+ * A column: its heading — the title and how many cards it holds, then at the right `edit` (shown on a
+ * desktop while the heading is hovered or what `edit` opens is open, `editing`, its room kept
+ * meanwhile so nothing shifts) and `controls` after it — a line under it short of the column's
+ * edges, its cards, and a `footer` under them. It is ruled off from
  * the column before it (`index`). Side by side the columns share the board's width, none narrower
  * than 260px and none wider for what is in it (a card dropped in leaves every column as wide as it
  * was). On a phone a column is no frame: its rows and footer alone, the columns one list, which the
@@ -705,11 +706,11 @@ function ColumnFrame({ index, title, count, edit, editing, controls, footer, chi
   }
   return (
     <Box style={{ display: 'flex', flexDirection: 'column', minHeight: 0, flex: '1 0 260px', minWidth: 0, ...(index === 0 ? {} : { borderLeft: COLUMN_RULE }) }}>
-      <Group gap={6} wrap='nowrap' px='sm' py={8} style={{ flex: 'none' }} onMouseEnter={() => setHovered(true)} onMouseLeave={() => setHovered(false)}>
-        <Text fw={600} size='sm' truncate style={{ minWidth: 0 }}>{title}</Text>
+      <Group gap={6} wrap='nowrap' px='sm' py={14} style={{ flex: 'none' }} onMouseEnter={() => setHovered(true)} onMouseLeave={() => setHovered(false)}>
+        <Text fw={600} size='md' truncate style={{ minWidth: 0 }}>{title}</Text>
         <Badge size='sm' variant='light' color='gray' radius='sm' style={{ flex: 'none' }}>{count}</Badge>
-        {edit && <Box style={{ display: 'flex', opacity: editShown ? 1 : 0, pointerEvents: editShown ? undefined : 'none', transition: 'opacity 120ms ease' }}>{edit}</Box>}
         <Box style={{ flex: 1 }} />
+        {edit && <Box style={{ display: 'flex', opacity: editShown ? 1 : 0, pointerEvents: editShown ? undefined : 'none', transition: 'opacity 120ms ease' }}>{edit}</Box>}
         {controls}
       </Group>
       <Box mx='sm' style={{ flex: 'none', borderBottom: COLUMN_RULE }} />
@@ -1143,15 +1144,6 @@ function ListBoard({ path, highlight }: { path: string; highlight: string | null
 
   const doneControls = doneCards.length > 0 && (
     <Group gap={4} wrap='nowrap'>
-      <Tooltip label={pickedDone.length === doneCards.length ? 'Pick none' : 'Pick all'}>
-        <Checkbox
-          size='xs'
-          checked={pickedDone.length === doneCards.length}
-          indeterminate={pickedDone.length > 0 && pickedDone.length < doneCards.length}
-          onChange={(event) => setPicked(event.currentTarget.checked ? new Set(doneCards.map((item) => item.path)) : new Set())}
-          aria-label='Pick every done item'
-        />
-      </Tooltip>
       {pickedDone.length > 0 && (
         <Button
           size='compact-xs'
@@ -1163,6 +1155,15 @@ function ListBoard({ path, highlight }: { path: string; highlight: string | null
           Archive {pickedDone.length}
         </Button>
       )}
+      <Tooltip label={pickedDone.length === doneCards.length ? 'Pick none' : 'Pick all'}>
+        <Checkbox
+          size='xs'
+          checked={pickedDone.length === doneCards.length}
+          indeterminate={pickedDone.length > 0 && pickedDone.length < doneCards.length}
+          onChange={(event) => setPicked(event.currentTarget.checked ? new Set(doneCards.map((item) => item.path)) : new Set())}
+          aria-label='Pick every done item'
+        />
+      </Tooltip>
     </Group>
   );
 
