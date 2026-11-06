@@ -527,7 +527,6 @@ function TodoRow({ item, members, expanded, onExpand, highlighted, onChanged, st
       <Group gap='sm' wrap='nowrap' align='flex-start'>
         <Checkbox
           size='md'
-          radius='xl'
           mt={1}
           checked={item.done}
           disabled={busy}
