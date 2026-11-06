@@ -31,6 +31,7 @@ import type { TodoColumn, TodoItem, TodoList, TodoListing, TodoMember, TodoMine 
 import { Face } from '../components/Face.tsx';
 import { LinkChip } from '../components/LinkChip.tsx';
 import { WIDGET_SETTING } from './widget.tsx';
+import './todos.css';
 
 export const handle = { fullBleed: true, title: 'Todo', pattern: 'mixed' };
 
@@ -460,8 +461,8 @@ function BoardCard({ item, members, expanded, onExpand, highlighted, onChanged, 
 
 /**
  * One item as a row of a list, as a phone shows a board: a box that ticks it off, moving it to Done,
- * and unticked moves it back; a spinner while it is in a started column (neither Todo nor Done); its
- * title, and after it a chevron that unfolds its description when it has one; at the right its due
+ * and unticked moves it back; its title, after it a slow spinner while it is in a started column
+ * (neither Todo nor Done), and then a chevron that unfolds its description when it has one; at the right its due
  * day and whoever is to do it; under the title what it links to, as their covers alone. Held still
  * for `LONG_PRESS` it opens the item's dialog; a shorter hold lifts it to move. A line parts it from
  * the next.
@@ -536,7 +537,6 @@ function TodoRow({ item, members, expanded, onExpand, highlighted, onChanged, st
         />
         <Box style={{ flex: 1, minWidth: 0 }}>
           <Group gap={6} wrap='nowrap' align='flex-start'>
-            {stage === 'doing' && !item.done && <Loader type='oval' size={14} mt={5} style={{ flex: 'none' }} aria-label='Ongoing' />}
             <Text size='md' lineClamp={3} td={item.done ? 'line-through' : undefined} c={item.done ? 'dimmed' : undefined} style={{ flex: '0 1 auto', minWidth: 0 }}>
               {prefix && (
                 <Text
@@ -553,6 +553,7 @@ function TodoRow({ item, members, expanded, onExpand, highlighted, onChanged, st
               )}
               {item.title}
             </Text>
+            {stage === 'doing' && !item.done && <Loader type='oval' size={14} mt={5} className='todo-ongoing' style={{ flex: 'none' }} aria-label='Ongoing' />}
             {item.description && (
               <ActionIcon
                 variant='subtle'
@@ -1014,7 +1015,7 @@ type Landing = { column: string; top: number; height: number; inset: number };
  * draggable's own padding rather than the column's gap, so that the room a drag opens, which is the
  * draggable's height, has it under the card too.
  */
-const CARD_SPACE = 6;
+const CARD_SPACE = 14;
 const cardSpace = (phone: boolean): number => phone ? 0 : CARD_SPACE;
 
 /**

@@ -1,0 +1,4 @@
+/* The spinner of an ongoing row on a phone turns slowly: it says where the item is, not that something loads. */
+.todo-ongoing.mantine-Loader-root::after {
+  animation-duration: 4s;
+}
