@@ -235,15 +235,10 @@ function DueControl({ value, overdue, onChange, opened, onOpened }: {
 
 /**
  * Whose an item is, as their face, or an empty one when it is nobody's, with a menu that gives it
- * to one of `members` or to nobody; `onOpened` hears the menu open and close. Without members, as on
- * the Overview, where every item is the reader's, there is nothing to show.
+ * to one of `members` or to nobody. Without members, as on the Overview, where every item is the
+ * reader's, there is nothing to show.
  */
-function AssigneeButton({ item, members, onChanged, onOpened }: {
-  item: TodoItem;
-  members: TodoMember[];
-  onChanged: () => void;
-  onOpened?: (opened: boolean) => void;
-}) {
+function AssigneeButton({ item, members, onChanged }: { item: TodoItem; members: TodoMember[]; onChanged: () => void }) {
   const who = members.find((member) => member.username === item.assignee)?.name ?? item.assignee;
   const give = async (username: string | null) => {
     if (await run(`todo-set ${shq(item.path)} ${username ? `--assignee ${shq(username)}` : '--no-assignee'}`)) onChanged();
@@ -251,7 +246,7 @@ function AssigneeButton({ item, members, onChanged, onOpened }: {
   const face = item.assignee ? <Face username={item.assignee} members={members} /> : <TablerIcon name='user-plus' size={16} />;
   if (members.length === 0) return null;
   return (
-    <Menu shadow='md' position='bottom-end' withinPortal onChange={onOpened}>
+    <Menu shadow='md' position='bottom-end' withinPortal>
       <Menu.Target>
         <Tooltip label={who ? `Assigned to ${who}` : 'Assign to'}>
           <ActionIcon
@@ -334,25 +329,23 @@ function TodoCard(props: CardProps) {
 
 /**
  * One item as a card, on the plain raised surface with its age colour (`ageColor`) as a stripe down
- * its left edge: the title across the card's width, under it the description's first line, ending in
- * an ellipsis whenever more follows, which a click opens whole as markdown and another folds; then what
- * the item links to, a picture or a video as its cover alone; and last a line with, on the Overview,
- * the list it is on (`prefix`), the due day once it has one, and at the right the face of whoever is
- * to do it. While the card is hovered or focused a few buttons float over its top right corner: the
- * pencil that opens the item's dialog, the calendar of an item with no day, and the empty face of one
- * nobody is to do. `onSelect` gives it a box to pick it by.
+ * its left edge. At the right of the title's first line stand the due day once it has one and the
+ * face of whoever is to do it, an empty one when it is nobody's; a longer title runs on under them
+ * across the card's width. While the card is hovered or focused the pencil that opens the item's
+ * dialog, and the calendar of an item with no day, fade in over the title just left of them. Under
+ * the title the description's first line, ending in an ellipsis whenever more follows, which a click
+ * opens whole as markdown and another folds; then what the item links to, a picture or a video as its
+ * cover alone; and on the Overview, last, the list it is on (`prefix`). `onSelect` gives it a box to
+ * pick it by.
  */
 function BoardCard({ item, members, expanded, onExpand, highlighted, onChanged, dragHandle, dragging, selected, onSelect, prefix, onPrefix }: CardProps) {
   const ref = useRef<HTMLDivElement>(null);
   const [hovered, setHovered] = useState(false);
   const [focused, setFocused] = useState(false);
   const [dueOpen, setDueOpen] = useState(false);
-  const [assignOpen, setAssignOpen] = useState(false);
   const overdue = !item.done && item.due !== undefined && item.due < today();
-  const tools = hovered || focused || dueOpen || assignOpen;
-  const assigned = item.assignee !== undefined && members.length > 0;
+  const tools = hovered || focused || dueOpen;
   const due = <DueControl value={item.due ?? ''} overdue={overdue} onChange={(day) => void setDue(day)} opened={dueOpen} onOpened={setDueOpen} />;
-  const assignee = <AssigneeButton item={item} members={members} onChanged={onChanged} onOpened={setAssignOpen} />;
 
   useEffect(() => {
     if (highlighted) ref.current?.scrollIntoView({ block: 'nearest' });
@@ -374,7 +367,7 @@ function BoardCard({ item, members, expanded, onExpand, highlighted, onChanged, 
       withBorder
       radius='sm'
       pl={CARD_STRIPE + 10}
-      pr={10}
+      pr={8}
       py={8}
       shadow={dragging || hovered ? 'md' : undefined}
       bg='var(--mrx-surface-raised)'
@@ -399,18 +392,32 @@ function BoardCard({ item, members, expanded, onExpand, highlighted, onChanged, 
     >
       <Box aria-hidden style={{ position: 'absolute', insetBlock: 0, left: 0, width: CARD_STRIPE, background: ageColor(item) }} />
       <Group gap={8} wrap='nowrap' align='flex-start'>
-        {onSelect && <Checkbox mt={4} size='xs' checked={selected ?? false} onChange={(event) => onSelect(event.currentTarget.checked)} aria-label={`Pick ${item.title}`} />}
+        {onSelect && <Checkbox mt={5} size='xs' checked={selected ?? false} onChange={(event) => onSelect(event.currentTarget.checked)} aria-label={`Pick ${item.title}`} />}
         <Text
+          component='div'
           size='md'
           fw={500}
-          lh={1.4}
+          lh={`${CARD_TITLE_LINE}px`}
           lineClamp={3}
           td={item.done ? 'line-through' : undefined}
           c={item.done ? 'dimmed' : undefined}
-          title={item.done && (item.doneBy || item.doneAt) ? doneLabel(item, members) : undefined}
           style={{ flex: 1, minWidth: 0 }}
         >
-          {item.title}
+          <Group gap={4} wrap='nowrap' h={CARD_TITLE_LINE} style={CARD_HEADING_END}>
+            {tools && (
+              <Group gap={2} wrap='nowrap' style={CARD_TOOLS}>
+                <Tooltip label='Change'>
+                  <ActionIcon variant='subtle' color='gray' size='sm' aria-label={`Change ${item.title}`} onClick={edit}>
+                    <TablerIcon name='pencil' size={15} />
+                  </ActionIcon>
+                </Tooltip>
+                {!item.due && due}
+              </Group>
+            )}
+            {item.due && due}
+            <AssigneeButton item={item} members={members} onChanged={onChanged} />
+          </Group>
+          <span title={item.done && (item.doneBy || item.doneAt) ? doneLabel(item, members) : undefined}>{item.title}</span>
         </Text>
       </Group>
       {item.description && (
@@ -430,36 +437,22 @@ function BoardCard({ item, members, expanded, onExpand, highlighted, onChanged, 
           {item.links.map((link) => <LinkChip key={link.path} link={link} bare={isMedia(link)} />)}
         </Group>
       )}
-      {(prefix || item.due || assigned) && (
-        <Group gap={8} wrap='nowrap' mt={8} mih={26}>
-          {prefix && (
-            <Text
-              size='xs'
-              c='dimmed'
-              truncate
-              onClick={onPrefix && ((event: MouseEvent<HTMLParagraphElement>) => {
-                event.stopPropagation();
-                onPrefix();
-              })}
-              style={{ minWidth: 0, cursor: onPrefix ? 'pointer' : undefined }}
-            >
-              {prefix}
-            </Text>
-          )}
-          {item.due && due}
-          {assigned && <Box ml='auto' style={{ flex: 'none' }}>{assignee}</Box>}
-        </Group>
-      )}
-      {tools && (
-        <Group gap={2} wrap='nowrap' py={2} pr={2} style={CARD_TOOLS}>
-          <Tooltip label='Change'>
-            <ActionIcon variant='subtle' color='gray' size='sm' aria-label={`Change ${item.title}`} onClick={edit}>
-              <TablerIcon name='pencil' size={15} />
-            </ActionIcon>
-          </Tooltip>
-          {!item.due && due}
-          {!assigned && assignee}
-        </Group>
+      {prefix && (
+        <Text
+          size='xs'
+          c='dimmed'
+          truncate
+          mt={6}
+          w='fit-content'
+          maw='100%'
+          onClick={onPrefix && ((event: MouseEvent<HTMLParagraphElement>) => {
+            event.stopPropagation();
+            onPrefix();
+          })}
+          style={onPrefix ? { cursor: 'pointer' } : undefined}
+        >
+          {prefix}
+        </Text>
       )}
     </Paper>
   );
@@ -604,12 +597,24 @@ const CARD_EDGE_HOVERED = 'var(--mantine-color-dark-2)';
 /** How wide the stripe down a card's left edge is, in its age colour. */
 const CARD_STRIPE = 4;
 
-/** The buttons that float over a card's top right corner while it is hovered or focused, on the card's own surface, which fades in over the title under their left end. */
+/** How tall a line of a card's title is, in px: as tall as the face at its right, so that the title's first line holds the face whole and its second runs under it. */
+const CARD_TITLE_LINE = 26;
+
+/** The due day and the face at the right of a card's title, as tall as its first line and floating there so that a longer title runs on under them across the card's width. */
+const CARD_HEADING_END = {
+  float: 'right',
+  position: 'relative',
+  marginLeft: 8,
+} as const;
+
+/** The pencil and the calendar just left of the due day and the face while a card is hovered or focused, on the card's own surface, which fades in over the title under them. */
 const CARD_TOOLS = {
   position: 'absolute',
-  top: 4,
-  right: 4,
+  top: 0,
+  right: '100%',
+  paddingBlock: 2,
   paddingLeft: 20,
+  paddingRight: 4,
   background: 'linear-gradient(90deg, transparent, var(--mrx-surface-raised) 20px)',
 } as const;
 
