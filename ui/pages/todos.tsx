@@ -320,6 +320,8 @@ type CardProps = {
   prefix?: string;
   /** What a click on the prefix does: open that list. */
   onPrefix?: () => void;
+  /** Whether the list (`prefix`) is a group's, which a card's label marks as the list's tab does. */
+  shared?: boolean;
 };
 
 /** One item: a card on a board, a row of a list on a phone. */
@@ -335,10 +337,10 @@ function TodoCard(props: CardProps) {
  * dialog, and the calendar of an item with no day, fade in over the title just left of them. Under
  * the title the description's first line, ending in an ellipsis whenever more follows, which a click
  * opens whole as markdown and another folds; then what the item links to, a picture or a video as its
- * cover alone; and on the Overview, last, the list it is on (`prefix`). `onSelect` gives it a box to
- * pick it by.
+ * cover alone; and on the Overview, last, the list it is on (`prefix`) as a label with its tab's icon.
+ * `onSelect` gives it a box to pick it by.
  */
-function BoardCard({ item, members, expanded, onExpand, highlighted, onChanged, dragHandle, dragging, selected, onSelect, prefix, onPrefix }: CardProps) {
+function BoardCard({ item, members, expanded, onExpand, highlighted, onChanged, dragHandle, dragging, selected, onSelect, prefix, onPrefix, shared }: CardProps) {
   const ref = useRef<HTMLDivElement>(null);
   const [hovered, setHovered] = useState(false);
   const [focused, setFocused] = useState(false);
@@ -438,21 +440,24 @@ function BoardCard({ item, members, expanded, onExpand, highlighted, onChanged, 
         </Group>
       )}
       {prefix && (
-        <Text
-          size='xs'
-          c='dimmed'
-          truncate
-          mt={6}
-          w='fit-content'
-          maw='100%'
-          onClick={onPrefix && ((event: MouseEvent<HTMLParagraphElement>) => {
-            event.stopPropagation();
-            onPrefix();
-          })}
-          style={onPrefix ? { cursor: 'pointer' } : undefined}
-        >
-          {prefix}
-        </Text>
+        <Box mt={8} style={{ display: 'flex' }}>
+          <Badge
+            variant='light'
+            color='gray'
+            size='sm'
+            radius='sm'
+            tt='none'
+            fw={500}
+            leftSection={<TablerIcon name={shared ? 'users' : 'list-check'} size={12} />}
+            onClick={onPrefix && ((event: MouseEvent<HTMLDivElement>) => {
+              event.stopPropagation();
+              onPrefix();
+            })}
+            style={{ minWidth: 0, maxWidth: '100%', cursor: onPrefix ? 'pointer' : undefined }}
+          >
+            {prefix}
+          </Badge>
+        </Box>
       )}
     </Paper>
   );
@@ -1342,6 +1347,7 @@ function OverviewBoard({ lists, onOpen }: { lists: TodoList[]; onOpen: (path: st
                               prefix={item.listTitle}
                               onPrefix={() =>
                                 onOpen(item.list)}
+                              shared={item.group !== undefined}
                             />
                           </div>
                         )}
