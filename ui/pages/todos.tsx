@@ -9,7 +9,7 @@ import {
   type DroppableProvided,
   type DropResult,
 } from '@hello-pangea/dnd';
-import { Dialog, DialogActions, EmptyState, HatField, Markdown, PageBar, PageLoader, ScrollBox, TablerIcon } from '@ein/ui/components';
+import { Dialog, DialogActions, EmptyState, Markdown, PageBar, PageLoader, ScrollBox, TablerIcon } from '@ein/ui/components';
 import { useCommand, usePhone } from '@ein/ui/hooks';
 import { plainMarkdown, shq } from '@ein/ui/lib';
 import { execCommand, loadUserConfig, notify, onOutsideEdit, openDialog, userConfigFlag } from '@ein/ui/signals';
@@ -29,7 +29,7 @@ import {
 import { useSearchParams } from 'react-router-dom';
 import type { TodoColumn, TodoItem, TodoList, TodoListing, TodoMember, TodoMine } from '../../lib/api.ts';
 import { Face } from '../components/Face.tsx';
-import { LinkChip } from '../components/LinkChip.tsx';
+import { isMedia, LinkChip } from '../components/LinkChip.tsx';
 import { WIDGET_SETTING } from './widget.tsx';
 import './todos.css';
 
@@ -235,18 +235,23 @@ function DueControl({ value, overdue, onChange, opened, onOpened }: {
 
 /**
  * Whose an item is, as their face, or an empty one when it is nobody's, with a menu that gives it
- * to one of `members` or to nobody. Without members, as on the Overview, where every item is the
- * reader's, there is nothing to show.
+ * to one of `members` or to nobody; `onOpened` hears the menu open and close. Without members, as on
+ * the Overview, where every item is the reader's, there is nothing to show.
  */
-function AssigneeButton({ item, members, onChanged }: { item: TodoItem; members: TodoMember[]; onChanged: () => void }) {
+function AssigneeButton({ item, members, onChanged, onOpened }: {
+  item: TodoItem;
+  members: TodoMember[];
+  onChanged: () => void;
+  onOpened?: (opened: boolean) => void;
+}) {
   const who = members.find((member) => member.username === item.assignee)?.name ?? item.assignee;
   const give = async (username: string | null) => {
     if (await run(`todo-set ${shq(item.path)} ${username ? `--assignee ${shq(username)}` : '--no-assignee'}`)) onChanged();
   };
-  const face = item.assignee ? <Face username={item.assignee} members={members} /> : <TablerIcon name='user-plus' size={16} color='white' />;
+  const face = item.assignee ? <Face username={item.assignee} members={members} /> : <TablerIcon name='user-plus' size={16} />;
   if (members.length === 0) return null;
   return (
-    <Menu shadow='md' position='bottom-end' withinPortal>
+    <Menu shadow='md' position='bottom-end' withinPortal onChange={onOpened}>
       <Menu.Target>
         <Tooltip label={who ? `Assigned to ${who}` : 'Assign to'}>
           <ActionIcon
@@ -255,7 +260,7 @@ function AssigneeButton({ item, members, onChanged }: { item: TodoItem; members:
             radius='xl'
             size={26}
             aria-label={who ? `Assigned to ${who}` : 'Assign to'}
-            style={item.assignee ? undefined : { border: '1px dashed rgb(255 255 255 / .8)' }}
+            style={item.assignee ? undefined : { border: '1px dashed var(--mantine-color-dimmed)' }}
           >
             {face}
           </ActionIcon>
@@ -328,20 +333,26 @@ function TodoCard(props: CardProps) {
 }
 
 /**
- * One item as a card. Its heading: the title (after `prefix`, on the Overview its list), the pencil
- * that opens the item's dialog, the due day once it has one, and the face of whoever is to do it;
- * the pencil, and the calendar of an item with no day, show while the card is hovered or focused. Under it the description's first line, ending in an ellipsis whenever more follows,
- * which a click opens whole as markdown and another folds; and last what the item links to.
- * `onSelect` gives it a box to pick it by.
+ * One item as a card, on the plain raised surface with its age colour (`ageColor`) as a stripe down
+ * its left edge: the title across the card's width, under it the description's first line, ending in
+ * an ellipsis whenever more follows, which a click opens whole as markdown and another folds; then what
+ * the item links to, a picture or a video as its cover alone; and last a line with, on the Overview,
+ * the list it is on (`prefix`), the due day once it has one, and at the right the face of whoever is
+ * to do it. While the card is hovered or focused a few buttons float over its top right corner: the
+ * pencil that opens the item's dialog, the calendar of an item with no day, and the empty face of one
+ * nobody is to do. `onSelect` gives it a box to pick it by.
  */
 function BoardCard({ item, members, expanded, onExpand, highlighted, onChanged, dragHandle, dragging, selected, onSelect, prefix, onPrefix }: CardProps) {
   const ref = useRef<HTMLDivElement>(null);
   const [hovered, setHovered] = useState(false);
   const [focused, setFocused] = useState(false);
   const [dueOpen, setDueOpen] = useState(false);
+  const [assignOpen, setAssignOpen] = useState(false);
   const overdue = !item.done && item.due !== undefined && item.due < today();
-  const tools = hovered || focused || dueOpen;
-  const tint = ageColor(item);
+  const tools = hovered || focused || dueOpen || assignOpen;
+  const assigned = item.assignee !== undefined && members.length > 0;
+  const due = <DueControl value={item.due ?? ''} overdue={overdue} onChange={(day) => void setDue(day)} opened={dueOpen} onOpened={setDueOpen} />;
+  const assignee = <AssigneeButton item={item} members={members} onChanged={onChanged} onOpened={setAssignOpen} />;
 
   useEffect(() => {
     if (highlighted) ref.current?.scrollIntoView({ block: 'nearest' });
@@ -362,9 +373,12 @@ function BoardCard({ item, members, expanded, onExpand, highlighted, onChanged, 
       ref={ref}
       withBorder
       radius='sm'
-      p={0}
+      pl={CARD_STRIPE + 10}
+      pr={10}
+      py={8}
       shadow={dragging || hovered ? 'md' : undefined}
       bg='var(--mrx-surface-raised)'
+      title={addedLabel(item)}
       {...dragHandle}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
@@ -383,77 +397,69 @@ function BoardCard({ item, members, expanded, onExpand, highlighted, onChanged, 
         transition: 'border-color 120ms ease, box-shadow 120ms ease',
       }}
     >
-      {/* Top-aligned, so a title of several lines keeps its buttons by its first line; the margins centre that line, and the box, on the face (26px). */}
-      <Group
-        gap={6}
-        wrap='nowrap'
-        align='flex-start'
-        px='xs'
-        py={6}
-        title={addedLabel(item)}
-        style={{ ...CARD_BAND, background: tint.ground, filter: hovered ? 'brightness(1.3)' : undefined }}
-      >
-        <HatField pattern='neutral' kind='foot' color={tint.tiles} />
-        <Box aria-hidden style={CARD_BAND_SHADE} />
-        {onSelect && <Checkbox mt={5} size='xs' checked={selected ?? false} onChange={(event) => onSelect(event.currentTarget.checked)} aria-label={`Pick ${item.title}`} />}
+      <Box aria-hidden style={{ position: 'absolute', insetBlock: 0, left: 0, width: CARD_STRIPE, background: ageColor(item) }} />
+      <Group gap={8} wrap='nowrap' align='flex-start'>
+        {onSelect && <Checkbox mt={4} size='xs' checked={selected ?? false} onChange={(event) => onSelect(event.currentTarget.checked)} aria-label={`Pick ${item.title}`} />}
         <Text
           size='md'
           fw={500}
+          lh={1.4}
           lineClamp={3}
           td={item.done ? 'line-through' : undefined}
           c={item.done ? 'dimmed' : undefined}
           title={item.done && (item.doneBy || item.doneAt) ? doneLabel(item, members) : undefined}
-          mt={1}
           style={{ flex: 1, minWidth: 0 }}
         >
+          {item.title}
+        </Text>
+      </Group>
+      {item.description && (
+        // Not a button: a drag cannot start on one.
+        <Box mt={4} onClick={toggle} style={{ cursor: 'pointer' }} aria-expanded={expanded}>
+          {expanded
+            ? (
+              <Box fz='sm'>
+                <Markdown content={item.description} breaks />
+              </Box>
+            )
+            : <Text size='sm' c='dimmed' lineClamp={1}>{firstLine(item.description)}</Text>}
+        </Box>
+      )}
+      {item.links && (
+        <Group gap={6} mt={8}>
+          {item.links.map((link) => <LinkChip key={link.path} link={link} bare={isMedia(link)} />)}
+        </Group>
+      )}
+      {(prefix || item.due || assigned) && (
+        <Group gap={8} wrap='nowrap' mt={8} mih={26}>
           {prefix && (
             <Text
-              span
-              inherit
+              size='xs'
               c='dimmed'
-              onClick={onPrefix && ((event: MouseEvent<HTMLSpanElement>) => {
+              truncate
+              onClick={onPrefix && ((event: MouseEvent<HTMLParagraphElement>) => {
                 event.stopPropagation();
                 onPrefix();
               })}
-              style={onPrefix ? { cursor: 'pointer' } : undefined}
+              style={{ minWidth: 0, cursor: onPrefix ? 'pointer' : undefined }}
             >
-              {prefix} ›{' '}
+              {prefix}
             </Text>
           )}
-          {item.title}
-        </Text>
-        <Group gap={2} wrap='nowrap' align='center' style={{ flex: 'none', filter: CARD_BAND_ICON_SHADOW }}>
-          {tools && (
-            <Tooltip label='Change'>
-              <ActionIcon variant='subtle' color='gray' size='sm' aria-label={`Change ${item.title}`} onClick={edit}>
-                <TablerIcon name='pencil' size={15} />
-              </ActionIcon>
-            </Tooltip>
-          )}
-          {(item.due || tools) && <DueControl value={item.due ?? ''} overdue={overdue} onChange={(day) => void setDue(day)} opened={dueOpen} onOpened={setDueOpen} />}
-          <AssigneeButton item={item} members={members} onChanged={onChanged} />
+          {item.due && due}
+          {assigned && <Box ml='auto' style={{ flex: 'none' }}>{assignee}</Box>}
         </Group>
-      </Group>
-      {(item.description || item.links) && (
-        <Box px='xs' pt={6} pb='xs'>
-          {item.description && (
-            // Not a button: a drag cannot start on one.
-            <Box onClick={toggle} style={{ cursor: 'pointer' }} aria-expanded={expanded}>
-              {expanded
-                ? (
-                  <Box fz='sm'>
-                    <Markdown content={item.description} breaks />
-                  </Box>
-                )
-                : <Text size='sm' c='dimmed' lineClamp={1}>{firstLine(item.description)}</Text>}
-            </Box>
-          )}
-          {item.links && (
-            <Group gap={6} mt={item.description ? 6 : 0}>
-              {item.links.map((link) => <LinkChip key={link.path} link={link} />)}
-            </Group>
-          )}
-        </Box>
+      )}
+      {tools && (
+        <Group gap={2} wrap='nowrap' py={2} pr={2} style={CARD_TOOLS}>
+          <Tooltip label='Change'>
+            <ActionIcon variant='subtle' color='gray' size='sm' aria-label={`Change ${item.title}`} onClick={edit}>
+              <TablerIcon name='pencil' size={15} />
+            </ActionIcon>
+          </Tooltip>
+          {!item.due && due}
+          {!assigned && assignee}
+        </Group>
       )}
     </Paper>
   );
@@ -592,51 +598,37 @@ function TodoRow({ item, members, expanded, onExpand, highlighted, onChanged, st
 /** A card's border; the accent for the card a link opened the page at. */
 const CARD_EDGE = 'var(--mantine-color-default-border)';
 const CARD_EDGE_HIGHLIGHTED = 'var(--mantine-primary-color-filled)';
-/** A card's border while the pointer is over it, which also casts a shadow and brightens its heading. */
+/** A card's border while the pointer is over it, which also casts a shadow. */
 const CARD_EDGE_HOVERED = 'var(--mantine-color-dark-2)';
 
-/** The band a card's heading stands on, in the card's age colour (`ageColor`), its hat field behind the heading. */
-const CARD_BAND = {
-  position: 'relative',
-  overflow: 'hidden',
-  isolation: 'isolate',
-  transition: 'filter 120ms ease',
-  // A dark edge under the heading's light text and icons, so they read over any tile.
-  textShadow: '0 1px 2px rgb(0 0 0 / .9)',
-} as const;
+/** How wide the stripe down a card's left edge is, in its age colour. */
+const CARD_STRIPE = 4;
 
-/**
- * A shade over a card's band, ground and tiles alike, behind the heading: near black over its
- * left, where the title is, giving way to the band's own colour only towards its right edge.
- */
-const CARD_BAND_SHADE = {
+/** The buttons that float over a card's top right corner while it is hovered or focused, on the card's own surface, which fades in over the title under their left end. */
+const CARD_TOOLS = {
   position: 'absolute',
-  inset: 0,
-  zIndex: -1,
-  pointerEvents: 'none',
-  background: 'linear-gradient(90deg, rgb(0 0 0 / .85), rgb(0 0 0 / .7) 40%, rgb(0 0 0 / .3) 70%, transparent 90%)',
+  top: 4,
+  right: 4,
+  paddingLeft: 20,
+  background: 'linear-gradient(90deg, transparent, var(--mrx-surface-raised) 20px)',
 } as const;
-
-/** The same dark edge for the heading's buttons and faces, which a text shadow does not reach. */
-const CARD_BAND_ICON_SHADOW = 'drop-shadow(0 1px 1.5px rgb(0 0 0 / .85))';
 
 /** How long a card takes to turn from green to red, in days. */
 const AGE_SPAN = 28;
 
 /**
- * The colour of a card's band by how long it has been on the board: green when added today, through
+ * The colour of a card's stripe by how long it has been on the board: green when added today, through
  * yellow, to red at `AGE_SPAN` days and after; a done card, or one whose file says nothing of when it
- * was made, grey. The band is the dark `ground`, solid, so the title reads on it, and its tiles a
- * lighter shade of the same hue.
+ * was made, grey.
  */
-const ageColor = (item: TodoItem): { ground: string; tiles: string } => {
-  if (item.done || !item.added) return { ground: 'hsl(220 8% 16%)', tiles: 'hsl(220 8% 30%)' };
+const ageColor = (item: TodoItem): string => {
+  if (item.done || !item.added) return 'hsl(220 8% 40%)';
   const days = Math.max(0, (Date.now() - Date.parse(item.added)) / 86_400_000);
   const hue = Math.round(130 * (1 - Math.min(1, days / AGE_SPAN)));
-  return { ground: `hsl(${hue} 35% 14%)`, tiles: `hsl(${hue} 40% 30%)` };
+  return `hsl(${hue} 55% 45%)`;
 };
 
-/** When a card was added, in words, for its band's hover. */
+/** When a card was added, in words, for its hover. */
 const addedLabel = (item: TodoItem): string | undefined =>
   item.added ? `Added ${new Date(item.added).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })}` : undefined;
 

@@ -8,7 +8,7 @@ import { useNavigate } from 'react-router-dom';
 import type { TodoLink } from '../../lib/api.ts';
 
 /** Whether a link points at a picture or a video, which the lightbox shows and which has a thumbnail. */
-const isMedia = (link: TodoLink): boolean => link.type === 'file' && /^(image|video)\//.test(link.mimetype ?? '');
+export const isMedia = (link: TodoLink): boolean => link.type === 'file' && /^(image|video)\//.test(link.mimetype ?? '');
 
 /** The glyph for what a link points at. */
 const linkIcon = (link: TodoLink): string => {
