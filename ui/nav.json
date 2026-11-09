@@ -4,17 +4,5 @@
   ],
   "panels": [
     { "id": "todo.widget", "slot": "shell.float", "label": "Todo widget", "icon": "list-check", "route": "/todo-widget", "signedIn": true }
-  ],
-  "topbar": [
-    {
-      "id": "todo.new-item",
-      "parent": "ui.create",
-      "title": "Todo item",
-      "icon": "list-check",
-      "color": "teal",
-      "action": { "dialog": "/todos/new" },
-      "order": 30,
-      "signedIn": true
-    }
   ]
 }

@@ -42,7 +42,7 @@ const build = (about: string | undefined, stay: boolean) => (v: FormValues) => {
 };
 
 /**
- * `/todos/new`, in the dialog from the top bar's Create menu or as a page of its own: an item for
+ * `/todos/new`, in the dialog from the Todo widget or as a page of its own: an item for
  * any list the reader can see, `?list=` the one picked to start with, else the first. Opened over a
  * page about a node — a picture, an album — or a picture full screen, it offers to link the item to it, ticked.
  * Added, it opens the list, or with `?stay=1` (the Todo widget's) leaves the reader where they were.
