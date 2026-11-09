@@ -11,7 +11,7 @@ import {
 } from '@hello-pangea/dnd';
 import { Dialog, DialogActions, EmptyState, Markdown, PageBar, PageLoader, ScrollBox, TablerIcon } from '@ein/ui/components';
 import { useCommand, usePhone } from '@ein/ui/hooks';
-import { plainMarkdown, shq } from '@ein/ui/lib';
+import { formatDate, formatDateTime, plainMarkdown, shq } from '@ein/ui/lib';
 import { execCommand, loadUserConfig, notify, onOutsideEdit, openDialog, userConfigFlag } from '@ein/ui/signals';
 import { useSignals } from '@preact/signals-react/runtime';
 import {
@@ -47,7 +47,7 @@ const dueLabel = (due: string): string => {
   const tomorrow = new Date(Date.parse(`${now}T12:00:00`) + 86_400_000);
   if (due === now) return 'Today';
   if (due === `${tomorrow.getFullYear()}-${String(tomorrow.getMonth() + 1).padStart(2, '0')}-${String(tomorrow.getDate()).padStart(2, '0')}`) return 'Tomorrow';
-  return new Date(`${due}T12:00:00`).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: due.slice(0, 4) === now.slice(0, 4) ? undefined : 'numeric' });
+  return formatDate(`${due}T12:00:00`, { day: 'numeric', month: 'short', year: due.slice(0, 4) === now.slice(0, 4) ? undefined : 'numeric' });
 };
 
 /** Run a command, saying on failure what went wrong; answers whether it ran. */
@@ -638,8 +638,7 @@ const ageColor = (item: TodoItem): string => {
 };
 
 /** When a card was added, in words, for its hover. */
-const addedLabel = (item: TodoItem): string | undefined =>
-  item.added ? `Added ${new Date(item.added).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })}` : undefined;
+const addedLabel = (item: TodoItem): string | undefined => item.added ? `Added ${formatDate(item.added, { day: 'numeric', month: 'short', year: 'numeric' })}` : undefined;
 
 /** A description's first line as plain text, with an ellipsis when more lines follow it; one cut short gets its own from the clamp. */
 const firstLine = (description: string): string => {
@@ -650,7 +649,7 @@ const firstLine = (description: string): string => {
 /** Who ticked an item off and when, as far as its file says. */
 const doneLabel = (item: TodoItem, members: TodoMember[]): string => {
   const who = item.doneBy ? ` by ${members.find((member) => member.username === item.doneBy)?.name ?? item.doneBy}` : '';
-  return `Done${who}${item.doneAt ? `, ${new Date(item.doneAt).toLocaleString()}` : ''}`;
+  return `Done${who}${item.doneAt ? `, ${formatDateTime(item.doneAt)}` : ''}`;
 };
 
 /**
