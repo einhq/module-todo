@@ -1,5 +1,5 @@
 import { Checkbox, Group, Skeleton, Stack, Text } from '@mantine/core';
-import { TablerIcon } from '@ein/ui/components';
+import { RollingList, TablerIcon } from '@ein/ui/components';
 import { useLocalDay, useNodeEvents, usePolledCommand } from '@ein/ui/hooks';
 import { shq } from '@ein/ui/lib';
 import { execCommand, isAuthenticated, notify } from '@ein/ui/signals';
@@ -31,8 +31,8 @@ const byDue = (a: TodoItem, b: TodoItem): number => {
 /**
  * `/cards/todo/list`: one list's items not done (`list`), those due within a week or late when
  * `show` is `soon`, late first and then by when they are due, each with when and, unless `who` is
- * off, who is to do it. Someone signed in ticks one off; a screen only shows. Read again as the
- * list changes, and every few minutes besides.
+ * off, who is to do it, rolling by when they do not all fit. Someone signed in ticks one off; a
+ * screen only shows. Read again as the list changes, and every few minutes besides.
  */
 export default function TodoListCard() {
   useSignals();
@@ -72,7 +72,7 @@ export default function TodoListCard() {
   }
 
   return (
-    <Stack gap='0.5em' h='100%' style={{ overflow: 'auto', fontSize: 'clamp(0.85rem, 4.4cqmin, 1.4rem)' }}>
+    <RollingList gap='0.5em' style={{ fontSize: 'clamp(0.85rem, 4.4cqmin, 1.4rem)' }}>
       {items.map((item) => {
         const days = item.due ? daysUntil(today, item.due) : undefined;
         const tone = days === undefined ? 'dimmed' : days < 0 ? 'red.4' : days === 0 ? 'yellow.4' : 'dimmed';
@@ -87,6 +87,6 @@ export default function TodoListCard() {
           </Group>
         );
       })}
-    </Stack>
+    </RollingList>
   );
 }
