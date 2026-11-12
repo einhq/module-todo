@@ -1,6 +1,6 @@
 {
   "name": "todo",
-  "version": "0.7.2",
+  "version": "0.7.3",
   "description": "Todo lists, personal or shared within a group: items with a due date and someone to do them, shown on Home when they fall due, and on a dashboard",
   "license": "MIT",
   "coreApi": "^0.14.18",
