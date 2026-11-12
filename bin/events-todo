@@ -1,7 +1,8 @@
 #!ts
 /**
  * events-todo — for Home's events: the open items falling due around a day that are the reader's
- * to do, given to them or to nobody, on any list they can see.
+ * to do, given to them or to nobody, on any list they can see, each drawn by `/events/todo` as one
+ * row leading to the item on its list.
  */
 import type { CmdReturn, Command } from '@ein/client';
 import { collectUnknownFlags, parseArgs, reportUnknownFlags } from '@ein/client';
@@ -32,7 +33,8 @@ const eventsTodo = async (cmd: Command): CmdReturn => {
         if (item.assignee && item.assignee !== me) continue;
         entries.push({
           title: `${item.title} (${list.title})`,
-          route: `/todos?list=${encodeURIComponent(list.path)}&item=${encodeURIComponent(item.path)}`,
+          // One row of its own to draw it by: the board's page would draw the whole board.
+          route: `/events/todo?${new URLSearchParams({ item: item.path, list: list.path, title: item.title, listTitle: list.title })}`,
           path: item.path,
           date: item.due,
         });

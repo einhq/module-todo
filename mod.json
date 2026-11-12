@@ -20,7 +20,8 @@
       "/todos/new-list": "ui/pages/new-list.tsx",
       "/todos/new-column": "ui/pages/new-column.tsx",
       "/todos/item": "ui/pages/edit-item.tsx",
-      "/todo-widget": "ui/pages/widget.tsx"
+      "/todo-widget": "ui/pages/widget.tsx",
+      "/events/todo": "ui/pages/events-todo.tsx"
     }
   },
   "config": {

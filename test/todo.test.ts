@@ -246,7 +246,13 @@ Deno.test({ name: 'todo lists', sanitizeResources: false, sanitizeOps: false }, 
         '2026-11-20',
         'Renew the passport (Before the trip)',
       ]]);
-      assertEquals(annas[1].route.startsWith(`/todos?list=${encodeURIComponent(shopping)}&item=`), true);
+      const row = new URL(annas[1].route, 'http://ein');
+      assertEquals([row.pathname, row.searchParams.get('list'), row.searchParams.get('title'), row.searchParams.get('listTitle')], [
+        '/events/todo',
+        shopping,
+        'Apples',
+        'Shopping',
+      ]);
       // Bo sees the unassigned bread, not Anna's apples nor her own list.
       assertEquals((await bo.execJson<EventEntry[]>(`events-todo ${window}`)).map((entry) => entry.title), ['Rye bread (Shopping)']);
       assertEquals(await cleo.execJson<EventEntry[]>(`events-todo ${window}`), []);
