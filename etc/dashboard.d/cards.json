@@ -1,0 +1,26 @@
+[
+  {
+    "name": "list",
+    "label": "Todo list",
+    "description": "One list's items not done yet, late ones first and then by when they are due, with who is to do them.",
+    "icon": "list-check",
+    "color": "yellow",
+    "route": "/cards/todo/list",
+    "size": [4, 5],
+    "min": [3, 3],
+    "params": {
+      "type": "object",
+      "required": ["list"],
+      "properties": {
+        "list": { "type": "string", "format": "path", "title": "List", "x-choices": { "command": "todo-lists", "value": "path", "label": "title" } },
+        "show": {
+          "type": "string",
+          "title": "Show",
+          "default": "open",
+          "oneOf": [{ "const": "open", "title": "Everything not done" }, { "const": "soon", "title": "Due within a week, and late" }]
+        },
+        "who": { "type": "boolean", "title": "Who is to do each", "default": true }
+      }
+    }
+  }
+]
