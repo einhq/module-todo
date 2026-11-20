@@ -1,7 +1,7 @@
 import { Checkbox, Group, Skeleton, Stack, Text } from '@mantine/core';
 import { RollingList, TablerIcon } from '@ein/ui/components';
 import { useLocalDay, useNodeEvents, usePolledCommand } from '@ein/ui/hooks';
-import { shq } from '@ein/ui/lib';
+import { formatDate, shq } from '@ein/ui/lib';
 import { execCommand, isAuthenticated, notify } from '@ein/ui/signals';
 import { useSignals } from '@preact/signals-react/runtime';
 import { useSearchParams } from 'react-router-dom';
@@ -16,8 +16,8 @@ const dueText = (days: number, due: string): string => {
   if (days < 0) return days === -1 ? 'yesterday' : `${-days} days late`;
   if (days === 0) return 'today';
   if (days === 1) return 'tomorrow';
-  if (days < 7) return new Date(`${due}T12:00:00`).toLocaleDateString(undefined, { weekday: 'long' });
-  return new Date(`${due}T12:00:00`).toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
+  if (days < 7) return formatDate(`${due}T12:00:00`, { weekday: 'long' });
+  return formatDate(`${due}T12:00:00`, { day: 'numeric', month: 'short' });
 };
 
 /** The soonest due first — so the late ones, then today's — and what has no day last, as the board orders those. */
